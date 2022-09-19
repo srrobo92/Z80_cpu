@@ -6,7 +6,7 @@
 -- Author     : Steve Robichaud
 -- Company    : Self
 -- Created    : 2022-08-14
--- Last update: 2022-09-05
+-- Last update: 2022-09-06
 -- Platform   : 
 -- Standard   : VHDL'08
 -------------------------------------------------------------------------------
@@ -33,7 +33,6 @@ entity z80_top is
     ---------------------------------------------------------------------------
     M1          : out   std_logic;      -- Active Low
     MREQ        : out   std_logic;      -- Active Low
-    IORQ        : out   std_logic;      -- Active Low
     RD          : out   std_logic;      -- Active Low
     WR          : out   std_logic;      -- Active Low
     RFSH        : out   std_logic;      -- Active Low

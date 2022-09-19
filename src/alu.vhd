@@ -6,7 +6,7 @@
 -- Author     : Steve Robichaud
 -- Company    : Self
 -- Created    : 2022-09-03
--- Last update: 2022-09-05
+-- Last update: 2022-09-06
 -- Platform   : 
 -- Standard   : VHDL'08
 -------------------------------------------------------------------------------
@@ -105,7 +105,7 @@ architecture rtl of alu is
 
   -----------------------------------------------------------------------------
   -- Types
-  type mem is array (65534 downto 0) of std_logic_vector(7 downto 0);
+  type mem is array (65535 downto 0) of std_logic_vector(7 downto 0);
   -----------------------------------------------------------------------------
   -----------------------------------------------------------------------------
   -- Signals
