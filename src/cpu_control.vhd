@@ -82,6 +82,9 @@ entity cpu_control is
     halt           : out std_logic;
     wait_n         : in  std_logic;
     int            : in  std_logic;
+    ime            : in  std_logic;
+    int_handled    : out std_logic;
+    int_data       : in  std_logic_vector(4 downto 0);
     nmi            : in  std_logic;
     bus_req        : in  std_logic;
     bus_ack        : out std_logic;
@@ -205,25 +208,32 @@ begin
       bus_ack_l         <= '1';
       bus_ack           <= '1';
     elsif rising_edge(clk) then
-      current_state     <= next_state;
-      if current_time_step = T4 and bus_req = '0' then
-        bus_ack   <= '0';
-        bus_ack_l <= '0';
-      elsif bus_req = '0' and bus_ack_l = '0' then
-        bus_ack <= '0';
-      elsif bus_req = '1' then
-        current_time_step <= next_time_step;
-        bus_ack   <= '1';
-        bus_ack_l <= '1';
+      if current_state = M1 and l_halt = '1' then
+        null;
+      else
+        current_state <= next_state;
+        if current_time_step = T4 and bus_req = '0' then
+          bus_ack   <= '0';
+          bus_ack_l <= '0';
+        elsif bus_req = '0' and bus_ack_l = '0' then
+          bus_ack <= '0';
+        elsif bus_req = '1' then
+          current_time_step <= next_time_step;
+          bus_ack           <= '1';
+          bus_ack_l         <= '1';
+        end if;
       end if;
     end if;
   end process;
 
-  u_sequence : process (current_state, current_time_step, wait_n, flags_reg, instruction_register, reset)
+  u_sequence : process (current_state, current_time_step, wait_n, flags_reg, instruction_register, reset, int)
   begin
 
     if reset = '0' then
       l_stop <= '0';
+      l_halt <= '0';
+    elsif int = '1' then
+      l_halt <= '0';
     end if;
 
     ---------------------------------------------------------------------------
@@ -297,847 +307,855 @@ begin
     exchange_de_hl <= '0';
     exchange_af    <= '0';
     exchange_prime <= '0';
-    case current_state is
-      when M1 =>                        -- FETCH
-        ---------------------------------------------------------------------------
-        -- Reset signals to defaults
-        ---------------------------------------------------------------------------    
-        update_reg <= "000";
-        db_to_regs <= (others => '0');
-        ab_reg_sel <= "00";
-        use_cf     <= '0';
-        flag_only  <= '0';
-        Inc_PC     <= '0';
-        jump_pc    <= '0';
-        skip_write <= '0';
-        if current_time_step = T1 then
-          Inc_PC <= '1';
-          m1_o   <= '0';
-        elsif current_time_step = T2 then
-          m1_o <= '0';
-        elsif current_time_step = T3 then
-          rfsh <= '0';
-        else
-          rfsh <= '0';
-          -------------------------------------------------------------------
-          -- DECODE INSTRUCTION
-          -------------------------------------------------------------------
-          if multi_command = '0' then
-            case instruction_register is
-
-              -- NOP
-              when x"00" =>
-                Load_PC <= '1';
-
-              -- Load dd, nn
-              when x"01" | x"11" | x"21" | x"31" =>
-                next_state     <= M2;
-                read_bytes_req <= "01";
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                update_reg     <= instruction_register(5 downto 4) & '1';
-
-              -- Load (BC), A; Load (DE), A
-              when x"02" | x"12" =>
-                next_state      <= M3;
-                write_bytes_req <= "00";
-                Load_Reg        <= '1';
-                reg_to_db       <= (others => '1');
-                ab_reg_sel      <= instruction_register(5 downto 4);
-
-              -- INC ss
-              when x"03" | x"13" | x"23" | x"33" =>
-                next_state    <= M15;
-                delay_loops   <= "00";
-                increment_reg <= instruction_register(5 downto 4) & '1';
-                Load_PC       <= '1';
-
-              -- INC r
-              when x"04" | x"0C" | x"14" | x"1C" | x"24" | x"2C" | x"3C" =>
-                inc_8b_reg <= instruction_register(5 downto 3) & '1';
-                Load_PC    <= '1';
-
-              -- INC (HL)
-              when x"34" =>
-                next_state     <= M5;
-                read_bytes_req <= "00";
-                Load_Reg       <= '1';
-                ab_reg_sel     <= "10";
-
-              -- DEC ss
-              when x"0B" | x"1B" | x"2B" | x"3B" =>
-                next_state    <= M15;
-                delay_loops   <= "00";
-                decrement_reg <= instruction_register(5 downto 4) & '1';
-                Load_PC       <= '1';
-
-              -- DEC r
-              when x"05" | x"0D" | x"15" | x"1D" | x"25" | x"2D" | x"3D" =>
-                dec_8b_reg <= instruction_register(5 downto 3) & '1';
-                Load_PC    <= '1';
-
-              -- DEC (HL)
-              when x"35" =>
-                next_state     <= M6;
-                read_bytes_req <= "00";
-                Load_Reg       <= '1';
-                ab_reg_sel     <= "10";
-
-              -- Load r,r'
-              when x"40" | x"41" | x"42" | x"43" | x"44" | x"45" | x"47" |
-                x"48" | x"49" | x"4A" | x"4B" | x"4C" | x"4D" | x"4F" |
-                x"50" | x"51" | x"52" | x"53" | x"54" | x"55" | x"57" |
-                x"58" | x"59" | x"5A" | x"5B" | x"5C" | x"5D" | x"5F" |
-                x"60" | x"61" | x"62" | x"63" | x"64" | x"65" | x"67" |
-                x"68" | x"69" | x"6A" | x"6B" | x"6C" | x"6D" | x"6F" |
-                x"78" | x"79" | x"7A" | x"7B" | x"7C" | x"7D" | x"7F" =>
-                load_regs <= instruction_register(5 downto 0) & '1';
-                Load_PC   <= '1';
-
-              -- Load r,n
-              when x"06" | x"0E" | x"16" | x"1E" | x"26" | x"2E" | x"3E" =>
-                next_state     <= M2;
-                read_bytes_req <= "00";
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                db_to_regs     <= instruction_register(5 downto 3) & '1';
-
-              -- Load r, (HL)
-              when x"46" | x"4E" | x"56" | x"5E" | x"66" | x"6E" | x"7E" =>
-                next_state     <= M2;
-                read_bytes_req <= "00";
-                Load_Reg       <= '1';
-                ab_reg_sel     <= "10";
-                db_to_regs     <= instruction_register(5 downto 3) & '1';
-
-              -- Load (HL), r
-              when x"70" | x"71" | x"72" | x"73" | x"74" | x"75" | x"77" =>
-                next_state      <= M3;
-                write_bytes_req <= "00";
-                Load_Reg        <= '1';
-                ab_reg_sel      <= "10";
-                reg_to_db       <= instruction_register(2 downto 0) & '1';
-
-              -- Load (HL), n
-              when x"36" =>
-                next_state     <= M12;
-                read_bytes_req <= "00";
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-
-              -- Load A, (BC); Load A, (DE)
-              when x"0A" | x"1A" =>
-                next_state     <= M2;
-                read_bytes_req <= "00";
-                Load_Reg       <= '1';
-                ab_reg_sel     <= instruction_register(5 downto 4);
-                db_to_regs     <= x"F";
-
-              -- (GB) LD A, (HL-); (Z80) Load A, (nn)
-              when x"3A" =>
-                next_state     <= M2;
-                read_bytes_req <= "00";
-                Load_Reg       <= '1';
-                ab_reg_sel     <= "10";
-                db_to_regs     <= x"F";
-                decrement_reg  <= "101";
-
-              -- (GB) LD (HL-), A; (Z80) Load (nn), A
-              when x"32" =>
-                next_state      <= M3;
-                write_bytes_req <= "00";
-                Load_Reg        <= '1';
-                ab_reg_sel      <= "10";
-                reg_to_db       <= x"F";
-                decrement_reg   <= "101";
-
-              -- (GB) LD (HL+), A; (Z80) Load (nn), HL
-              when x"22" =>
-                next_state      <= M3;
-                write_bytes_req <= "00";
-                Load_Reg        <= '1';
-                ab_reg_sel      <= "10";
-                reg_to_db       <= x"F";
-                increment_reg   <= "101";
-                
-              -- (GB) LD A, (HL+); (Z80) Load HL, (nn)
-              when x"2A" =>
-                next_state     <= M2;
-                read_bytes_req <= "00";
-                Load_Reg       <= '1';
-                ab_reg_sel     <= "10";
-                db_to_regs     <= x"F";
-                increment_reg  <= "101";
-
-              -- Load SP, HL
-              when x"F9" =>
-                next_state  <= M15;
-                delay_loops <= "00";
-                hl_ld_sp    <= '1';
-                Load_PC     <= '1';
-
-              -- Push qq
-              when x"C5" | x"D5" | x"E5" | x"F5" =>
-                next_state  <= M15;
-                delay_loops <= "10";
-                push_reg    <= instruction_register(5 downto 4) & '1';
-                Load_PC     <= '1';
-
-              --Pop qq
-              when x"C1" | x"D1" | x"E1" | x"F1" =>
-                next_state  <= M15;
-                delay_loops <= "01";
-                pop_reg     <= instruction_register(5 downto 4) & '1';
-                Load_PC     <= '1';
-
-              -- Exchange DE, HL
-              when x"EB" =>
-                exchange_de_hl <= '1';
-                Load_PC        <= '1';
-
-              -- (GB) LD (nn), SP; (Z80)Exchange AF, AF'
-              when x"08" =>
-                --exchange_af <= '1';
-                next_state     <= M13;
-                read_bytes_req <= "01";
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-
-              -- (GB) RETI (Z80) Exchange (Swap prime and not prime)
-              when x"D9" =>
-                next_state   <= M15;
-                delay_loops  <= "10";
-                sp_to_pc_l   <= '1';
-                enable_inter <= '1';
-
-              -- Exchange (SP), HL
-              when x"E3" =>
-                null;
-
-              -- Add A, r
-              when x"80" | x"81" | x"82" | x"83" | x"84" | x"85" | x"87" =>
-                add_reg <= instruction_register(2 downto 0) & '1';
-                Load_PC <= '1';
-
-              -- Add A, n
-              when x"C6" =>
-                next_state     <= M7;
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                read_bytes_req <= "00";
-
-              -- Add A, (HL)
-              when x"86" =>
-                next_state     <= M7;
-                Load_Reg       <= '1';
-                ab_reg_sel     <= "10";
-                read_bytes_req <= "00";
-
-              -- Add with Carry A, r
-              when x"88" | x"89" | x"8A" | x"8B" | x"8C" | x"8D" | x"8F" =>
-                add_reg <= instruction_register(2 downto 0) & '1';
-                use_cf  <= '1';
-                Load_PC <= '1';
-
-              -- ADC A, n
-              when x"CE" =>
-                next_state     <= M7;
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                use_cf         <= '1';
-                read_bytes_req <= "00";
-
-              -- ADC A, (HL)
-              when x"8E" =>
-                next_state     <= M7;
-                Load_Reg       <= '1';
-                ab_reg_sel     <= "10";
-                use_cf         <= '1';
-                read_bytes_req <= "00";
-
-              -- ADD HL, ss
-              when x"09" | x"19" | x"29" | x"39" =>
-                next_state  <= M15;
-                delay_loops <= "00";
-                add_hl      <= instruction_register(5 downto 4) & '1';
-                Load_PC     <= '1';
-
-              -- Sub A, r
-              when x"90" | x"91" | x"92" | x"93" | x"94" | x"95" | x"97" =>
-                sub_reg <= instruction_register(2 downto 0) & '1';
-                Load_PC <= '1';
-
-              -- Sub A, n
-              when x"D6" =>
-                next_state     <= M8;
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                read_bytes_req <= "00";
-
-              -- Sub A, (HL)
-              when x"96" =>
-                next_state     <= M8;
-                Load_Reg       <= '1';
-                ab_reg_sel     <= "10";
-                read_bytes_req <= "00";
-
-              -- SBC A, r
-              when x"98" | x"99" | x"9A" | x"9B" | x"9C" | x"9D" | x"9F" =>
-                sub_reg <= instruction_register(2 downto 0) & '1';
-                use_cf  <= '1';
-                Load_PC <= '1';
-
-              -- SBC A, n
-              when x"DE" =>
-                next_state     <= M8;
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                use_cf         <= '1';
-                read_bytes_req <= "00";
-
-              -- SBC A, (HL)
-              when x"9E" =>
-                next_state     <= M8;
-                Load_Reg       <= '1';
-                ab_reg_sel     <= "10";
-                use_cf         <= '1';
-                read_bytes_req <= "00";
-
-              -- AND r
-              when x"A0" | x"A1" | x"A2" | x"A3" | x"A4" | x"A5" | x"A7" =>
-                and_reg <= instruction_register(2 downto 0) & '1';
-                Load_PC <= '1';
-
-              -- And n
-              when x"E6" =>
-                next_state     <= M9;
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                read_bytes_req <= "00";
-
-              -- And (HL)
-              when x"A6" =>
-                next_state     <= M9;
-                Load_Reg       <= '1';
-                ab_reg_sel     <= "10";
-                read_bytes_req <= "00";
-
-              -- OR r
-              when x"B0" | x"B1" | x"B2" | x"B3" | x"B4" | x"B5" | x"B7" =>
-                or_reg  <= instruction_register(2 downto 0) & '1';
-                Load_PC <= '1';
-
-              -- OR n
-              when x"F6" =>
-                next_state     <= M10;
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                read_bytes_req <= "00";
-
-              -- Or (HL)
-              when x"B6" =>
-                next_state     <= M10;
-                Load_Reg       <= '1';
-                ab_reg_sel     <= "10";
-                read_bytes_req <= "00";
-
-              -- XOR r
-              when x"A8" | x"A9" | x"AA" | x"AB" | x"AC" | x"AD"| x"AF" =>
-                xor_reg <= instruction_register(2 downto 0) & '1';
-                Load_PC <= '1';
-
-              -- XOR n
-              when x"EE" =>
-                next_state     <= M11;
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                read_bytes_req <= "00";
-
-              -- XOR (HL)
-              when x"AE" =>
-                next_state     <= M11;
-                Load_Reg       <= '1';
-                ab_reg_sel     <= "10";
-                read_bytes_req <= "00";
-
-              --CP r
-              when x"B8" | x"B9" | x"BA" | x"BB" | x"BC" | x"BD" | x"BF" =>
-                sub_reg   <= instruction_register(2 downto 0) & '1';
-                flag_only <= '1';
-                Load_PC   <= '1';
-
-              -- CP n
-              when x"FE" =>
-                next_state     <= M8;
-                flag_only      <= '1';
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                read_bytes_req <= "00";
-
-              -- CP (HL)
-              when x"BE" =>
-                next_state     <= M8;
-                flag_only      <= '1';
-                Load_Reg       <= '1';
-                ab_reg_sel     <= "10";
-                read_bytes_req <= "00";
-
-              -- DAA
-              when x"27" =>
-                preform_daa <= '1';
-                Load_PC     <= '1';
-
-              -- Not A
-              when x"2F" =>
-                not_acc <= '1';
-                Load_PC <= '1';
-
-              -- NOT Carry flag
-              when x"3F" =>
-                not_cf  <= '1';
-                Load_PC <= '1';
-
-              -- Set Carry
-              when x"37" =>
-                set_cf  <= '1';
-                Load_PC <= '1';
-
-              -- Halt
-              when x"76" =>
-                l_halt <= '1';
-
-              -- DI (diables maskable interrupt; sets IFF1 & 2)
-              when x"F3" =>
-                disable_inter <= '1';
-                Load_PC       <= '1';
-
-              -- EI (Enable maskable interrupt)
-              when x"FB" =>
-                enable_inter <= '1';
-                Load_PC      <= '1';
-
-              -- RLCA
-              when x"07" =>
-                rotate_l_a <= '1';
-                Load_PC    <= '1';
-
-              -- RLA
-              when x"17" =>
-                rotate_l_a <= '1';
-                thru_cf    <= '1';
-                Load_PC    <= '1';
-
-              -- RRCA
-              when x"0F" =>
-                rotate_r_a <= '1';
-                Load_PC    <= '1';
-
-              -- RRA
-              when x"1F" =>
-                rotate_r_a <= '1';
-                thru_cf    <= '1';
-                Load_PC    <= '1';
-
-              -- JP nn
-              when x"C3" =>
-                next_state     <= M2;
-                read_bytes_req <= "01";
-                delay_loops    <= "01";
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                jump_pc        <= '1';
-
-              -- JP cc, nn
-              when x"C2" | x"CA" | x"D2" | x"DA" =>
-                next_state     <= M2;
-                read_bytes_req <= "01";
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                if instruction_register(5 downto 3) = "000" and zero_flag = '0' then
-                  jump_pc     <= '1';
-                  delay_loops <= "01";
-                elsif instruction_register(5 downto 3) = "001" and zero_flag = '1' then
-                  jump_pc     <= '1';
-                  delay_loops <= "01";
-                elsif instruction_register(5 downto 3) = "010" and carry_flag = '0' then
-                  jump_pc     <= '1';
-                  delay_loops <= "01";
-                elsif instruction_register(5 downto 3) = "011" and carry_flag = '1' then
-                  jump_pc     <= '1';
-                  delay_loops <= "01";
-                end if;
-
-              -- JR e
-              when x"18" =>
-                next_state     <= M2;
-                read_bytes_req <= "00";
-                delay_loops    <= "01";
-                Load_PC        <= '1';
-                jump_pc        <= '1';
-
-              -- JR C, e
-              when x"38" =>
-                next_state     <= M2;
-                read_bytes_req <= "00";
-                Load_PC        <= '1';
-                if carry_flag = '1' then
-                  jump_pc        <= '1';
-                  delay_loops    <= "01";
-                else
-                  Inc_PC <= '1';
-                end if;
-
-              -- JR NC, e
-              when x"30" =>
-                next_state     <= M2;
-                read_bytes_req <= "00";
-                Load_PC        <= '1';
-                if carry_flag = '0' then
-                  jump_pc        <= '1';
-                  delay_loops    <= "01";
-                else
-                  Inc_PC <= '1';
-                end if;
-
-              -- JR Z, e
-              when x"28" =>
-                next_state     <= M2;
-                read_bytes_req <= "00";
-                Load_PC        <= '1';
-                if zero_flag = '1' then
-                  jump_pc        <= '1';
-                  delay_loops    <= "01";
-                else
-                  Inc_PC <= '1';
-                end if;
-
-              -- JR NZ, e
-              when x"20" =>
-                next_state     <= M2;
-                read_bytes_req <= "00";
-                Load_PC        <= '1';
-                if zero_flag = '0' then
-                  jump_pc        <= '1';
-                  delay_loops    <= "01";
-                else
-                  Inc_PC <= '1';
-                end if;
-
-              -- JP (HL)
-              when x"E9" =>
-                PC_HL   <= '1';
-                Load_PC <= '1';
-                
-
-              -- (GB) STOP; (Z80) DJNZ, e
-              when x"10" =>
-                l_stop <= '1';
-
-              -- CALL nn
-              when x"CD" =>
-                next_state     <= M2;
-                read_bytes_req <= "01";
-                delay_loops    <= "11";
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                jump_pc        <= '1';
-                pc_to_sp_p3    <= '1';
-                
-
-              -- CALL cc, nn
-              when x"C4" | x"CC" | x"D4" | x"DC" => 
-                next_state     <= M2;
-                read_bytes_req <= "01";
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                if instruction_register(5 downto 3) = "000" and zero_flag = '0' then
-                  jump_pc     <= '1';
-                  pc_to_sp_p3 <= '1';
-                  delay_loops <= "11";
-                elsif instruction_register(5 downto 3) = "001" and zero_flag = '1' then
-                  jump_pc     <= '1';
-                  pc_to_sp_p3 <= '1';
-                  delay_loops <= "11";
-                elsif instruction_register(5 downto 3) = "010" and carry_flag = '0' then
-                  jump_pc     <= '1';
-                  pc_to_sp_p3 <= '1';
-                  delay_loops <= "11";
-                elsif instruction_register(5 downto 3) = "011" and carry_flag = '1' then
-                  jump_pc     <= '1';
-                  pc_to_sp_p3 <= '1';
-                  delay_loops <= "11";
-                end if;
-
-              -- RET
-              when x"C9" =>
-                next_state  <= M15;
-                delay_loops <= "10";
-                sp_to_pc_l  <= '1';
-                Load_PC     <= '1';
-
-              -- RET cc
-              when x"C0" | x"C8" | x"D0" | x"D8" =>
-                next_state  <= M15;
-                Load_PC     <= '1';
-                if instruction_register(5 downto 3) = "000" and zero_flag = '0' then
-                  delay_loops <= "11";
-                  sp_to_pc_l  <= '1';
-                elsif instruction_register(5 downto 3) = "001" and zero_flag = '1' then
-                  delay_loops <= "11";
-                  sp_to_pc_l  <= '1';
-                elsif instruction_register(5 downto 3) = "010" and carry_flag = '0' then
-                  delay_loops <= "11";
-                  sp_to_pc_l  <= '1';
-                elsif instruction_register(5 downto 3) = "011" and carry_flag = '1' then
-                  delay_loops <= "11";
-                  sp_to_pc_l  <= '1';
-                else
-                  delay_loops <= "00";
-                end if;
-
-              -- RST p
-              when x"C7" | x"CF" | x"D7" | x"DF" | x"E7" | x"EF" | x"F7" | x"FF" =>
-                next_state  <= M15;
-                delay_loops <= "10";
-                pc_rst      <= '1';
-                reset_val   <= instruction_register(5 downto 3);
-                pc_to_sp    <= '1';
-                Load_PC     <= '1';
-
-              -- LDH (n), A (GB only)
-              when x"E0" =>
-                next_state     <= M16;
-                read_bytes_req <= "00";
-                Load_PC        <= '1';
-
-              -- LD (C), A (GB only)
-              when x"E2" =>
-                next_state      <= M3;
-                write_bytes_req <= "00";
-                Load_C          <= '1';
-                reg_to_db       <= x"F";
-
-              -- ADD SP, e
-              when x"E8" =>
-                next_state     <= M19;
-                read_bytes_req <= "00";
-                Load_PC        <= '1';
-                delay_loops    <= "10";
-
-              -- LD (nn), A
-              when x"EA" =>
-                next_state     <= M17;
-                read_bytes_req <= "01";
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-
-              -- LDH A, (n)
-              when x"F0" =>
-                next_state     <= M18;
-                read_bytes_req <= "01";
-                Load_PC        <= '1';
-                Inc_PC         <= '1';
-                db_to_regs     <= x"F";
-
-              -- LD A, (C)
-              when x"F2" =>
-                next_state     <= M2;
-                read_bytes_req <= "00";
-                Load_C         <= '1';
-                db_to_regs     <= x"F";
-
-              -- LD HL, SP+e
-              when x"F8" =>
-                next_state     <= M20;
-                read_bytes_req <= "00";
-                Load_PC        <= '1';
-                delay_loops    <= "01";
-
-              -- LD A, (nn)
-              when x"FA" =>
-                next_state     <= M18;
-                read_bytes_req <= "10";
-                Inc_PC         <= '1';
-                Load_PC        <= '1';
-                db_to_regs     <= x"F";
-
-              -----------------------------------------------------------------
-              -- Multi-Byte OPS
-              -----------------------------------------------------------------
-              when x"CB" =>
-                multi_command <= '1';
-                Load_PC       <= '1';
-
-              when others => null;
-            end case;
+    int_handled    <= '0';
+    if current_state = M1 and int = '1' and ime = '1' then  -- Handle interrupt
+      pc_to_sp      <= '1';
+      int_handled   <= '1';
+      Load_PC       <= '1';
+      disable_inter <= '1';
+    else
+      case current_state is
+        when M1 =>                        -- FETCH
+          ---------------------------------------------------------------------------
+          -- Reset signals to defaults
+          ---------------------------------------------------------------------------    
+          update_reg <= "000";
+          db_to_regs <= (others => '0');
+          ab_reg_sel <= "00";
+          use_cf     <= '0';
+          flag_only  <= '0';
+          Inc_PC     <= '0';
+          jump_pc    <= '0';
+          skip_write <= '0';
+          if current_time_step = T1 then
+            Inc_PC <= '1';
+            m1_o   <= '0';
+          elsif current_time_step = T2 then
+            m1_o <= '0';
+          elsif current_time_step = T3 then
+            rfsh <= '0';
           else
-            multi_command <= '0';
-            bit_reg       <= instruction_register(2 downto 0);
-            bit_cmd       <= instruction_register(7 downto 3);
-            if instruction_register(2 downto 0) = "110" then
-              next_state     <= M4;
-              read_bytes_req <= "00";
-              Load_Reg       <= '1';
-              ab_reg_sel     <= "10";
-              case (instruction_register(7 downto 4)) is
-                when x"4" | x"5" | x"6" | x"7" => skip_write <= '1';
+            rfsh <= '0';
+            -------------------------------------------------------------------
+            -- DECODE INSTRUCTION
+            -------------------------------------------------------------------
+            if multi_command = '0' then
+              case instruction_register is
+
+                -- NOP
+                when x"00" =>
+                  Load_PC <= '1';
+
+                -- Load dd, nn
+                when x"01" | x"11" | x"21" | x"31" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "01";
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  update_reg     <= instruction_register(5 downto 4) & '1';
+
+                -- Load (BC), A; Load (DE), A
+                when x"02" | x"12" =>
+                  next_state      <= M3;
+                  write_bytes_req <= "00";
+                  Load_Reg        <= '1';
+                  reg_to_db       <= (others => '1');
+                  ab_reg_sel      <= instruction_register(5 downto 4);
+
+                -- INC ss
+                when x"03" | x"13" | x"23" | x"33" =>
+                  next_state    <= M15;
+                  delay_loops   <= "00";
+                  increment_reg <= instruction_register(5 downto 4) & '1';
+                  Load_PC       <= '1';
+
+                -- INC r
+                when x"04" | x"0C" | x"14" | x"1C" | x"24" | x"2C" | x"3C" =>
+                  inc_8b_reg <= instruction_register(5 downto 3) & '1';
+                  Load_PC    <= '1';
+
+                -- INC (HL)
+                when x"34" =>
+                  next_state     <= M5;
+                  read_bytes_req <= "00";
+                  Load_Reg       <= '1';
+                  ab_reg_sel     <= "10";
+
+                -- DEC ss
+                when x"0B" | x"1B" | x"2B" | x"3B" =>
+                  next_state    <= M15;
+                  delay_loops   <= "00";
+                  decrement_reg <= instruction_register(5 downto 4) & '1';
+                  Load_PC       <= '1';
+
+                -- DEC r
+                when x"05" | x"0D" | x"15" | x"1D" | x"25" | x"2D" | x"3D" =>
+                  dec_8b_reg <= instruction_register(5 downto 3) & '1';
+                  Load_PC    <= '1';
+
+                -- DEC (HL)
+                when x"35" =>
+                  next_state     <= M6;
+                  read_bytes_req <= "00";
+                  Load_Reg       <= '1';
+                  ab_reg_sel     <= "10";
+
+                -- Load r,r'
+                when x"40" | x"41" | x"42" | x"43" | x"44" | x"45" | x"47" |
+                  x"48" | x"49" | x"4A" | x"4B" | x"4C" | x"4D" | x"4F" |
+                  x"50" | x"51" | x"52" | x"53" | x"54" | x"55" | x"57" |
+                  x"58" | x"59" | x"5A" | x"5B" | x"5C" | x"5D" | x"5F" |
+                  x"60" | x"61" | x"62" | x"63" | x"64" | x"65" | x"67" |
+                  x"68" | x"69" | x"6A" | x"6B" | x"6C" | x"6D" | x"6F" |
+                  x"78" | x"79" | x"7A" | x"7B" | x"7C" | x"7D" | x"7F" =>
+                  load_regs <= instruction_register(5 downto 0) & '1';
+                  Load_PC   <= '1';
+
+                -- Load r,n
+                when x"06" | x"0E" | x"16" | x"1E" | x"26" | x"2E" | x"3E" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "00";
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  db_to_regs     <= instruction_register(5 downto 3) & '1';
+
+                -- Load r, (HL)
+                when x"46" | x"4E" | x"56" | x"5E" | x"66" | x"6E" | x"7E" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "00";
+                  Load_Reg       <= '1';
+                  ab_reg_sel     <= "10";
+                  db_to_regs     <= instruction_register(5 downto 3) & '1';
+
+                -- Load (HL), r
+                when x"70" | x"71" | x"72" | x"73" | x"74" | x"75" | x"77" =>
+                  next_state      <= M3;
+                  write_bytes_req <= "00";
+                  Load_Reg        <= '1';
+                  ab_reg_sel      <= "10";
+                  reg_to_db       <= instruction_register(2 downto 0) & '1';
+
+                -- Load (HL), n
+                when x"36" =>
+                  next_state     <= M12;
+                  read_bytes_req <= "00";
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+
+                -- Load A, (BC); Load A, (DE)
+                when x"0A" | x"1A" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "00";
+                  Load_Reg       <= '1';
+                  ab_reg_sel     <= instruction_register(5 downto 4);
+                  db_to_regs     <= x"F";
+
+                -- (GB) LD A, (HL-); (Z80) Load A, (nn)
+                when x"3A" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "00";
+                  Load_Reg       <= '1';
+                  ab_reg_sel     <= "10";
+                  db_to_regs     <= x"F";
+                  decrement_reg  <= "101";
+
+                -- (GB) LD (HL-), A; (Z80) Load (nn), A
+                when x"32" =>
+                  next_state      <= M3;
+                  write_bytes_req <= "00";
+                  Load_Reg        <= '1';
+                  ab_reg_sel      <= "10";
+                  reg_to_db       <= x"F";
+                  decrement_reg   <= "101";
+
+                -- (GB) LD (HL+), A; (Z80) Load (nn), HL
+                when x"22" =>
+                  next_state      <= M3;
+                  write_bytes_req <= "00";
+                  Load_Reg        <= '1';
+                  ab_reg_sel      <= "10";
+                  reg_to_db       <= x"F";
+                  increment_reg   <= "101";
+                  
+                -- (GB) LD A, (HL+); (Z80) Load HL, (nn)
+                when x"2A" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "00";
+                  Load_Reg       <= '1';
+                  ab_reg_sel     <= "10";
+                  db_to_regs     <= x"F";
+                  increment_reg  <= "101";
+
+                -- Load SP, HL
+                when x"F9" =>
+                  next_state  <= M15;
+                  delay_loops <= "00";
+                  hl_ld_sp    <= '1';
+                  Load_PC     <= '1';
+
+                -- Push qq
+                when x"C5" | x"D5" | x"E5" | x"F5" =>
+                  next_state  <= M15;
+                  delay_loops <= "10";
+                  push_reg    <= instruction_register(5 downto 4) & '1';
+                  Load_PC     <= '1';
+
+                --Pop qq
+                when x"C1" | x"D1" | x"E1" | x"F1" =>
+                  next_state  <= M15;
+                  delay_loops <= "01";
+                  pop_reg     <= instruction_register(5 downto 4) & '1';
+                  Load_PC     <= '1';
+
+                -- Exchange DE, HL
+                when x"EB" =>
+                  exchange_de_hl <= '1';
+                  Load_PC        <= '1';
+
+                -- (GB) LD (nn), SP; (Z80)Exchange AF, AF'
+                when x"08" =>
+                  --exchange_af <= '1';
+                  next_state     <= M13;
+                  read_bytes_req <= "01";
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+
+                -- (GB) RETI (Z80) Exchange (Swap prime and not prime)
+                when x"D9" =>
+                  next_state   <= M15;
+                  delay_loops  <= "10";
+                  sp_to_pc_l   <= '1';
+                  enable_inter <= '1';
+
+                -- Exchange (SP), HL
+                when x"E3" =>
+                  null;
+
+                -- Add A, r
+                when x"80" | x"81" | x"82" | x"83" | x"84" | x"85" | x"87" =>
+                  add_reg <= instruction_register(2 downto 0) & '1';
+                  Load_PC <= '1';
+
+                -- Add A, n
+                when x"C6" =>
+                  next_state     <= M7;
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  read_bytes_req <= "00";
+
+                -- Add A, (HL)
+                when x"86" =>
+                  next_state     <= M7;
+                  Load_Reg       <= '1';
+                  ab_reg_sel     <= "10";
+                  read_bytes_req <= "00";
+
+                -- Add with Carry A, r
+                when x"88" | x"89" | x"8A" | x"8B" | x"8C" | x"8D" | x"8F" =>
+                  add_reg <= instruction_register(2 downto 0) & '1';
+                  use_cf  <= '1';
+                  Load_PC <= '1';
+
+                -- ADC A, n
+                when x"CE" =>
+                  next_state     <= M7;
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  use_cf         <= '1';
+                  read_bytes_req <= "00";
+
+                -- ADC A, (HL)
+                when x"8E" =>
+                  next_state     <= M7;
+                  Load_Reg       <= '1';
+                  ab_reg_sel     <= "10";
+                  use_cf         <= '1';
+                  read_bytes_req <= "00";
+
+                -- ADD HL, ss
+                when x"09" | x"19" | x"29" | x"39" =>
+                  next_state  <= M15;
+                  delay_loops <= "00";
+                  add_hl      <= instruction_register(5 downto 4) & '1';
+                  Load_PC     <= '1';
+
+                -- Sub A, r
+                when x"90" | x"91" | x"92" | x"93" | x"94" | x"95" | x"97" =>
+                  sub_reg <= instruction_register(2 downto 0) & '1';
+                  Load_PC <= '1';
+
+                -- Sub A, n
+                when x"D6" =>
+                  next_state     <= M8;
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  read_bytes_req <= "00";
+
+                -- Sub A, (HL)
+                when x"96" =>
+                  next_state     <= M8;
+                  Load_Reg       <= '1';
+                  ab_reg_sel     <= "10";
+                  read_bytes_req <= "00";
+
+                -- SBC A, r
+                when x"98" | x"99" | x"9A" | x"9B" | x"9C" | x"9D" | x"9F" =>
+                  sub_reg <= instruction_register(2 downto 0) & '1';
+                  use_cf  <= '1';
+                  Load_PC <= '1';
+
+                -- SBC A, n
+                when x"DE" =>
+                  next_state     <= M8;
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  use_cf         <= '1';
+                  read_bytes_req <= "00";
+
+                -- SBC A, (HL)
+                when x"9E" =>
+                  next_state     <= M8;
+                  Load_Reg       <= '1';
+                  ab_reg_sel     <= "10";
+                  use_cf         <= '1';
+                  read_bytes_req <= "00";
+
+                -- AND r
+                when x"A0" | x"A1" | x"A2" | x"A3" | x"A4" | x"A5" | x"A7" =>
+                  and_reg <= instruction_register(2 downto 0) & '1';
+                  Load_PC <= '1';
+
+                -- And n
+                when x"E6" =>
+                  next_state     <= M9;
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  read_bytes_req <= "00";
+
+                -- And (HL)
+                when x"A6" =>
+                  next_state     <= M9;
+                  Load_Reg       <= '1';
+                  ab_reg_sel     <= "10";
+                  read_bytes_req <= "00";
+
+                -- OR r
+                when x"B0" | x"B1" | x"B2" | x"B3" | x"B4" | x"B5" | x"B7" =>
+                  or_reg  <= instruction_register(2 downto 0) & '1';
+                  Load_PC <= '1';
+
+                -- OR n
+                when x"F6" =>
+                  next_state     <= M10;
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  read_bytes_req <= "00";
+
+                -- Or (HL)
+                when x"B6" =>
+                  next_state     <= M10;
+                  Load_Reg       <= '1';
+                  ab_reg_sel     <= "10";
+                  read_bytes_req <= "00";
+
+                -- XOR r
+                when x"A8" | x"A9" | x"AA" | x"AB" | x"AC" | x"AD"| x"AF" =>
+                  xor_reg <= instruction_register(2 downto 0) & '1';
+                  Load_PC <= '1';
+
+                -- XOR n
+                when x"EE" =>
+                  next_state     <= M11;
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  read_bytes_req <= "00";
+
+                -- XOR (HL)
+                when x"AE" =>
+                  next_state     <= M11;
+                  Load_Reg       <= '1';
+                  ab_reg_sel     <= "10";
+                  read_bytes_req <= "00";
+
+                --CP r
+                when x"B8" | x"B9" | x"BA" | x"BB" | x"BC" | x"BD" | x"BF" =>
+                  sub_reg   <= instruction_register(2 downto 0) & '1';
+                  flag_only <= '1';
+                  Load_PC   <= '1';
+
+                -- CP n
+                when x"FE" =>
+                  next_state     <= M8;
+                  flag_only      <= '1';
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  read_bytes_req <= "00";
+
+                -- CP (HL)
+                when x"BE" =>
+                  next_state     <= M8;
+                  flag_only      <= '1';
+                  Load_Reg       <= '1';
+                  ab_reg_sel     <= "10";
+                  read_bytes_req <= "00";
+
+                -- DAA
+                when x"27" =>
+                  preform_daa <= '1';
+                  Load_PC     <= '1';
+
+                -- Not A
+                when x"2F" =>
+                  not_acc <= '1';
+                  Load_PC <= '1';
+
+                -- NOT Carry flag
+                when x"3F" =>
+                  not_cf  <= '1';
+                  Load_PC <= '1';
+
+                -- Set Carry
+                when x"37" =>
+                  set_cf  <= '1';
+                  Load_PC <= '1';
+
+                -- Halt
+                when x"76" =>
+                  l_halt <= '1';
+
+                -- DI (diables maskable interrupt; sets IFF1 & 2)
+                when x"F3" =>
+                  disable_inter <= '1';
+                  Load_PC       <= '1';
+
+                -- EI (Enable maskable interrupt)
+                when x"FB" =>
+                  enable_inter <= '1';
+                  Load_PC      <= '1';
+
+                -- RLCA
+                when x"07" =>
+                  rotate_l_a <= '1';
+                  Load_PC    <= '1';
+
+                -- RLA
+                when x"17" =>
+                  rotate_l_a <= '1';
+                  thru_cf    <= '1';
+                  Load_PC    <= '1';
+
+                -- RRCA
+                when x"0F" =>
+                  rotate_r_a <= '1';
+                  Load_PC    <= '1';
+
+                -- RRA
+                when x"1F" =>
+                  rotate_r_a <= '1';
+                  thru_cf    <= '1';
+                  Load_PC    <= '1';
+
+                -- JP nn
+                when x"C3" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "01";
+                  delay_loops    <= "01";
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  jump_pc        <= '1';
+
+                -- JP cc, nn
+                when x"C2" | x"CA" | x"D2" | x"DA" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "01";
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  if instruction_register(5 downto 3) = "000" and zero_flag = '0' then
+                    jump_pc     <= '1';
+                    delay_loops <= "01";
+                  elsif instruction_register(5 downto 3) = "001" and zero_flag = '1' then
+                    jump_pc     <= '1';
+                    delay_loops <= "01";
+                  elsif instruction_register(5 downto 3) = "010" and carry_flag = '0' then
+                    jump_pc     <= '1';
+                    delay_loops <= "01";
+                  elsif instruction_register(5 downto 3) = "011" and carry_flag = '1' then
+                    jump_pc     <= '1';
+                    delay_loops <= "01";
+                  end if;
+
+                -- JR e
+                when x"18" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "00";
+                  delay_loops    <= "01";
+                  Load_PC        <= '1';
+                  jump_pc        <= '1';
+
+                -- JR C, e
+                when x"38" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "00";
+                  Load_PC        <= '1';
+                  if carry_flag = '1' then
+                    jump_pc        <= '1';
+                    delay_loops    <= "01";
+                  else
+                    Inc_PC <= '1';
+                  end if;
+
+                -- JR NC, e
+                when x"30" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "00";
+                  Load_PC        <= '1';
+                  if carry_flag = '0' then
+                    jump_pc        <= '1';
+                    delay_loops    <= "01";
+                  else
+                    Inc_PC <= '1';
+                  end if;
+
+                -- JR Z, e
+                when x"28" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "00";
+                  Load_PC        <= '1';
+                  if zero_flag = '1' then
+                    jump_pc        <= '1';
+                    delay_loops    <= "01";
+                  else
+                    Inc_PC <= '1';
+                  end if;
+
+                -- JR NZ, e
+                when x"20" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "00";
+                  Load_PC        <= '1';
+                  if zero_flag = '0' then
+                    jump_pc        <= '1';
+                    delay_loops    <= "01";
+                  else
+                    Inc_PC <= '1';
+                  end if;
+
+                -- JP (HL)
+                when x"E9" =>
+                  PC_HL   <= '1';
+                  Load_PC <= '1';
+                  
+
+                -- (GB) STOP; (Z80) DJNZ, e
+                when x"10" =>
+                  l_stop <= '1';
+
+                -- CALL nn
+                when x"CD" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "01";
+                  delay_loops    <= "11";
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  jump_pc        <= '1';
+                  pc_to_sp_p3    <= '1';
+                  
+
+                -- CALL cc, nn
+                when x"C4" | x"CC" | x"D4" | x"DC" => 
+                  next_state     <= M2;
+                  read_bytes_req <= "01";
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  if instruction_register(5 downto 3) = "000" and zero_flag = '0' then
+                    jump_pc     <= '1';
+                    pc_to_sp_p3 <= '1';
+                    delay_loops <= "11";
+                  elsif instruction_register(5 downto 3) = "001" and zero_flag = '1' then
+                    jump_pc     <= '1';
+                    pc_to_sp_p3 <= '1';
+                    delay_loops <= "11";
+                  elsif instruction_register(5 downto 3) = "010" and carry_flag = '0' then
+                    jump_pc     <= '1';
+                    pc_to_sp_p3 <= '1';
+                    delay_loops <= "11";
+                  elsif instruction_register(5 downto 3) = "011" and carry_flag = '1' then
+                    jump_pc     <= '1';
+                    pc_to_sp_p3 <= '1';
+                    delay_loops <= "11";
+                  end if;
+
+                -- RET
+                when x"C9" =>
+                  next_state  <= M15;
+                  delay_loops <= "10";
+                  sp_to_pc_l  <= '1';
+                  Load_PC     <= '1';
+
+                -- RET cc
+                when x"C0" | x"C8" | x"D0" | x"D8" =>
+                  next_state  <= M15;
+                  Load_PC     <= '1';
+                  if instruction_register(5 downto 3) = "000" and zero_flag = '0' then
+                    delay_loops <= "11";
+                    sp_to_pc_l  <= '1';
+                  elsif instruction_register(5 downto 3) = "001" and zero_flag = '1' then
+                    delay_loops <= "11";
+                    sp_to_pc_l  <= '1';
+                  elsif instruction_register(5 downto 3) = "010" and carry_flag = '0' then
+                    delay_loops <= "11";
+                    sp_to_pc_l  <= '1';
+                  elsif instruction_register(5 downto 3) = "011" and carry_flag = '1' then
+                    delay_loops <= "11";
+                    sp_to_pc_l  <= '1';
+                  else
+                    delay_loops <= "00";
+                  end if;
+
+                -- RST p
+                when x"C7" | x"CF" | x"D7" | x"DF" | x"E7" | x"EF" | x"F7" | x"FF" =>
+                  next_state  <= M15;
+                  delay_loops <= "10";
+                  pc_rst      <= '1';
+                  reset_val   <= instruction_register(5 downto 3);
+                  pc_to_sp    <= '1';
+                  Load_PC     <= '1';
+
+                -- LDH (n), A (GB only)
+                when x"E0" =>
+                  next_state     <= M16;
+                  read_bytes_req <= "00";
+                  Load_PC        <= '1';
+
+                -- LD (C), A (GB only)
+                when x"E2" =>
+                  next_state      <= M3;
+                  write_bytes_req <= "00";
+                  Load_C          <= '1';
+                  reg_to_db       <= x"F";
+
+                -- ADD SP, e
+                when x"E8" =>
+                  next_state     <= M19;
+                  read_bytes_req <= "00";
+                  Load_PC        <= '1';
+                  delay_loops    <= "10";
+
+                -- LD (nn), A
+                when x"EA" =>
+                  next_state     <= M17;
+                  read_bytes_req <= "01";
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+
+                -- LDH A, (n)
+                when x"F0" =>
+                  next_state     <= M18;
+                  read_bytes_req <= "01";
+                  Load_PC        <= '1';
+                  Inc_PC         <= '1';
+                  db_to_regs     <= x"F";
+
+                -- LD A, (C)
+                when x"F2" =>
+                  next_state     <= M2;
+                  read_bytes_req <= "00";
+                  Load_C         <= '1';
+                  db_to_regs     <= x"F";
+
+                -- LD HL, SP+e
+                when x"F8" =>
+                  next_state     <= M20;
+                  read_bytes_req <= "00";
+                  Load_PC        <= '1';
+                  delay_loops    <= "01";
+
+                -- LD A, (nn)
+                when x"FA" =>
+                  next_state     <= M18;
+                  read_bytes_req <= "10";
+                  Inc_PC         <= '1';
+                  Load_PC        <= '1';
+                  db_to_regs     <= x"F";
+
+                -----------------------------------------------------------------
+                -- Multi-Byte OPS
+                -----------------------------------------------------------------
+                when x"CB" =>
+                  multi_command <= '1';
+                  Load_PC       <= '1';
+
                 when others => null;
               end case;
             else
-              Load_PC <= '1';
-              use_cmd <= '1';
-            end if;
-          end if;
-        end if;
-      -----------------------------------------------------------------------
-      -- READ BYTES
-      -----------------------------------------------------------------------
-      when M2 | M4 | M5 | M6 | M7 | M8 | M9 | M10 | M11 | M12 | M13 | M16 | M17 | M18 | M19 | M20 =>
-        if current_time_step = T4 then
-          if not(current_state = M4 or current_state = M5 or current_state = M6 or
-                 current_state = M12 or current_state = M13  or
-                 current_state = M17 or current_state = M18) then
-            Load_PC <= '1';
-          elsif current_state = M4 then
-            use_cmd <= '1';
-          elsif current_state = M13 then
-            if read_bytes_req = "01" then
-              Inc_PC   <= '1';
-              Load_PC  <= '1';
-              Load_Add <= '1';
-            else
-              Load_Add <= '1';
-              Load_PC  <= '0';
-              Inc_PC   <= '0';
-            end if;
-          elsif current_state = M18 then
-            if read_bytes_req > "01" then
-              Load_Add <= '1';
-              Load_PC  <= '1';
-            elsif read_bytes_req = "01" then
-              Inc_PC  <= '0';
-              if instruction_register = x"F0" then
-                Load_DB <= '1';
+              multi_command <= '0';
+              bit_reg       <= instruction_register(2 downto 0);
+              bit_cmd       <= instruction_register(7 downto 3);
+              if instruction_register(2 downto 0) = "110" then
+                next_state     <= M4;
+                read_bytes_req <= "00";
+                Load_Reg       <= '1';
+                ab_reg_sel     <= "10";
+                case (instruction_register(7 downto 4)) is
+                  when x"4" | x"5" | x"6" | x"7" => skip_write <= '1';
+                  when others => null;
+                end case;
               else
                 Load_PC <= '1';
+                use_cmd <= '1';
+              end if;
+            end if;
+          end if;
+        -----------------------------------------------------------------------
+        -- READ BYTES
+        -----------------------------------------------------------------------
+        when M2 | M4 | M5 | M6 | M7 | M8 | M9 | M10 | M11 | M12 | M13 | M16 | M17 | M18 | M19 | M20 =>
+          if current_time_step = T4 then
+            if not(current_state = M4 or current_state = M5 or current_state = M6 or
+                   current_state = M12 or current_state = M13  or
+                   current_state = M17 or current_state = M18) then
+              Load_PC <= '1';
+            elsif current_state = M4 then
+              use_cmd <= '1';
+            elsif current_state = M13 then
+              if read_bytes_req = "01" then
+                Inc_PC   <= '1';
+                Load_PC  <= '1';
+                Load_Add <= '1';
+              else
+                Load_Add <= '1';
+                Load_PC  <= '0';
+                Inc_PC   <= '0';
+              end if;
+            elsif current_state = M18 then
+              if read_bytes_req > "01" then
+                Load_Add <= '1';
+                Load_PC  <= '1';
+              elsif read_bytes_req = "01" then
+                Inc_PC  <= '0';
+                if instruction_register = x"F0" then
+                  Load_DB <= '1';
+                else
+                  Load_PC <= '1';
+                  Load_Add <= '1';
+                end if;
+                
+              else
+                Load_PC <= '1';
+              end if;
+            elsif current_state = M17 then
+              if read_bytes_req = "01" then
+                Load_PC  <= '1';
+                Load_Add <= '1';
+              else
                 Load_Add <= '1';
               end if;
-              
             else
-              Load_PC <= '1';
+              Load_Reg <= '1';
             end if;
-          elsif current_state = M17 then
-            if read_bytes_req = "01" then
-              Load_PC  <= '1';
-              Load_Add <= '1';
-            else
-              Load_Add <= '1';
-            end if;
-          else
-            Load_Reg <= '1';
-          end if;
-          if read_bytes_req = "00" then
-            if not(current_state = M4 or current_state = M5 or current_state = M6 or
-                   current_state = M12 or current_state = M13 or current_state = M16 or
-                   current_state = M17) then
-              if delay_loops = "00" then
-                next_state <= M1;
-              else
-                delay_loops <= delay_loops - "1";
-                next_state  <= M15;
-                Inc_PC      <= '0';
-              end if;
-              
-              case current_state is
-                when M7     => add_db     <= '1';
-                when M8     => sub_db     <= '1';
-                when M9     => and_db     <= '1';
-                when M10    => or_db      <= '1';
-                when M11    => xor_db     <= '1';
-                when M19    => sp_add     <= '1';
-                when M20    => hl_pl_sp   <= '1';
-                when others => null;
-              end case;
-            elsif current_state = M4 then
-              if skip_write = '0' then
+            if read_bytes_req = "00" then
+              if not(current_state = M4 or current_state = M5 or current_state = M6 or
+                     current_state = M12 or current_state = M13 or current_state = M16 or
+                     current_state = M17) then
+                if delay_loops = "00" then
+                  next_state <= M1;
+                else
+                  delay_loops <= delay_loops - "1";
+                  next_state  <= M15;
+                  Inc_PC      <= '0';
+                end if;
+                
+                case current_state is
+                  when M7     => add_db     <= '1';
+                  when M8     => sub_db     <= '1';
+                  when M9     => and_db     <= '1';
+                  when M10    => or_db      <= '1';
+                  when M11    => xor_db     <= '1';
+                  when M19    => sp_add     <= '1';
+                  when M20    => hl_pl_sp   <= '1';
+                  when others => null;
+                end case;
+              elsif current_state = M4 then
+                if skip_write = '0' then
+                  next_state      <= M3;
+                  write_bytes_req <= "00";
+                  ab_reg_sel      <= "10";
+                  db_io           <= '1';
+                else
+                  next_state <= M1;
+                  Load_PC    <= '1';
+                end if;
+              elsif current_state = M12 then
                 next_state      <= M3;
                 write_bytes_req <= "00";
                 ab_reg_sel      <= "10";
                 db_io           <= '1';
+              elsif current_state = M13 then
+                next_state      <= M14;
+                write_bytes_req <= "01";
+                reg_16_to_db    <= "111";
+              elsif current_state = M16 or current_state = M17 then
+                next_state      <= M3;
+                write_bytes_req <= "00";
+                reg_to_db       <= x"F";
+                Inc_PC          <= '0';
+                Load_PC         <= '0';
+                if current_state = M16 then
+                  Load_DB <= '1';
+                else
+                  Load_Add <= '1';
+                end if;
               else
-                next_state <= M1;
-                Load_PC    <= '1';
-              end if;
-            elsif current_state = M12 then
-              next_state      <= M3;
-              write_bytes_req <= "00";
-              ab_reg_sel      <= "10";
-              db_io           <= '1';
-            elsif current_state = M13 then
-              next_state      <= M14;
-              write_bytes_req <= "01";
-              reg_16_to_db    <= "111";
-            elsif current_state = M16 or current_state = M17 then
-              next_state      <= M3;
-              write_bytes_req <= "00";
-              reg_to_db       <= x"F";
-              Inc_PC          <= '0';
-              Load_PC         <= '0';
-              if current_state = M16 then
-                Load_DB <= '1';
-              else
-                Load_Add <= '1';
+                next_state      <= M3;
+                write_bytes_req <= "00";
+                if current_state = M5 then
+                  inc_db <= '1';
+                elsif current_state = M6 then
+                  dec_db <= '1';
+                end if;
               end if;
             else
-              next_state      <= M3;
-              write_bytes_req <= "00";
-              if current_state = M5 then
-                inc_db <= '1';
-              elsif current_state = M6 then
-                dec_db <= '1';
-              end if;
+              read_bytes_req <= read_bytes_req - "1";
             end if;
-          else
-            read_bytes_req <= read_bytes_req - "1";
           end if;
-        end if;
-        
-      -----------------------------------------------------------------------
-      -- WRITE BYTES
-      -----------------------------------------------------------------------
-      when M3 | M14 =>
-        if current_time_step = T4 then
-          if current_state = M3 then
-            Load_PC <= '1';
-          else
-            Inc_Add      <= '1';
-            if write_bytes_req /= "00" then
-              reg_16_to_db <= "111";
-            else
+          
+        -----------------------------------------------------------------------
+        -- WRITE BYTES
+        -----------------------------------------------------------------------
+        when M3 | M14 =>
+          if current_time_step = T4 then
+            if current_state = M3 then
               Load_PC <= '1';
+            else
+              Inc_Add      <= '1';
+              if write_bytes_req /= "00" then
+                reg_16_to_db <= "111";
+              else
+                Load_PC <= '1';
+              end if;
+            end if;
+
+            if write_bytes_req = "00" then
+              next_state <= M1;  
+            else
+              write_bytes_req <= write_bytes_req - "1";
             end if;
           end if;
-
-          if write_bytes_req = "00" then
-            next_state <= M1;  
-          else
-            write_bytes_req <= write_bytes_req - "1";
+        -------------------------------------------------------------------------
+        -- Extra clock cycles?
+        -- Not sure why increment 16 bit registers take two extra clocks
+        -------------------------------------------------------------------------
+        when M15 =>
+          if current_time_step = T4 then
+            if delay_loops = "00" then
+              next_state <= M1;
+            else
+              delay_loops <= delay_loops - "1";
+            end if;
           end if;
-        end if;
-      -------------------------------------------------------------------------
-      -- Extra clock cycles?
-      -- Not sure why increment 16 bit registers take two extra clocks
-      -------------------------------------------------------------------------
-      when M15 =>
-        if current_time_step = T4 then
-          if delay_loops = "00" then
-            next_state <= M1;
-          else
-            delay_loops <= delay_loops - "1";
-          end if;
-        end if;
-      when others => null;
-    end case;
+        when others => null;
+      end case;
+    end if;
   end process;
 
   -----------------------------------------------------------------------------
@@ -1158,12 +1176,23 @@ begin
       update          := '0';
       update_done     := '0';
       toggle          := '0';
-      l_halt          <= '0';
-      l_stop          <= '0';
     elsif falling_edge(clk) then
       pc_out      <= program_counter;
       update_done := '0';
-      if (Inc_PC = '1' and current_time_step = T1) and l_halt = '0' and l_stop = '0' then
+      -- Handle interrupt, possible to not set pc but should never happen
+      if int = '1' and ime = '1' then
+        if int_data(0) = '1' then
+          program_counter <= x"0040";
+        elsif int_data(1) = '1' then
+          program_counter <= x"0048";
+        elsif int_data(2) = '1' then
+          program_counter <= x"0050";
+        elsif int_data(3) = '1' then
+          program_counter <= x"0058";
+        elsif int_data(4) = '1' then
+          program_counter <= x"0060";
+        end if;
+      elsif (Inc_PC = '1' and current_time_step = T1) and l_halt = '0' and l_stop = '0' then
         program_counter <= std_logic_vector(unsigned(program_counter) + "1");
       elsif update = '1' then
         program_counter <= temp_pc;

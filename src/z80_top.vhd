@@ -6,7 +6,7 @@
 -- Author     : Steve Robichaud
 -- Company    : Self
 -- Created    : 2022-08-14
--- Last update: 2023-03-26
+-- Last update: 2023-04-02
 -- Platform   : 
 -- Standard   : VHDL'08
 -------------------------------------------------------------------------------
@@ -41,11 +41,13 @@ entity z80_top is
     ---------------------------------------------------------------------------
     WAIT_N      : in    std_logic;      -- Active Low
     HALT        : out   std_logic;      -- Active Low
-    INT         : in    std_logic;      -- Active Low
-    NMI         : in    std_logic;      -- Active Low
+    IME         : out   std_logic;      -- Send to RAM
+    INT_EN      : in    std_logic_vector(7 downto 0);
+    INT_FL      : in    std_logic_vector(7 downto 0);
+    NMI         : in    std_logic;      -- Active Low (Not using)
     RESET       : in    std_logic;      -- Active Low
     ---------------------------------------------------------------------------
-    -- CPU BUS Control
+    -- CPU BUS Control (Not using)
     ---------------------------------------------------------------------------
     BUSREQ      : in    std_logic;      -- Active Low
     BUSACK      : out   std_logic;      -- Active Low
@@ -81,14 +83,13 @@ architecture rtl of z80_top is
   signal bc_reg                       : std_logic_vector(15 downto 0);
   signal de_reg                       : std_logic_vector(15 downto 0);
   signal hl_reg                       : std_logic_vector(15 downto 0);
-  -- Upper 8 bits of memory address for interrupt
-  signal interrupt_reg                : std_logic_vector(7 downto 0);
-  -- Interrupt flip flops
-  signal interrupt_ff1, interrupt_ff2 : std_logic;
-  -- Interrupt mode
-  signal interrupt_mode               : std_logic_vector(1 downto 0);
   -- Program counter
   signal program_counter              : std_logic_vector(15 downto 0);
+  -- Interrupt signals
+  signal interrupt_master_enable      : std_logic;
+  signal interrupt_data               : std_logic_vector(4 downto 0);
+  signal interrupt_local              : std_logic;
+  signal interrupt_handled            : std_logic;
   -----------------------------------------------------------------------------
   -- CPU CONTROL SIGNALS
   signal rd_local       : std_logic;
@@ -158,10 +159,39 @@ begin
   RD <= rd_local;
   WR <= wr_local;
 
+
+  -----------------------------------------------------------------------------
+  -- Handle interrupts
+  -----------------------------------------------------------------------------
+  u_int : process(CLK, RESET)
+  begin
+    if RESET = '0' then
+      IME                     <= '0';
+      interrupt_local         <= '0';
+      interrupt_data          <= (others => '0');
+      interrupt_master_enable <= '0';
+    elsif rising_edge(CLK) then
+      IME <= interrupt_master_enable;
+      if enable_inter = '1' then
+        interrupt_master_enable <= '1';
+      elsif disable_inter = '1' then
+        interrupt_master_enable <= '0';
+      end if;
+      if INT_FL /= x"00" then
+        interrupt_data <= INT_FL(4 downto 0) and INT_EN(4 downto 0);
+      end if;
+      if interrupt_data /= '0' & x"0" then
+        interrupt_local <= '1';
+      else
+        interrupt_local <= '0';
+      end if;
+    end if;
+  end process;
+  
   -----------------------------------------------------------------------------
   -- CPU Control Module
   --
-  -- Decodes and sequences intructions
+  -- Decodes and sequences intructions, PC, WR, RD, main control logic
   -----------------------------------------------------------------------------
   u_control: entity work.cpu_control
     port map (
@@ -171,7 +201,10 @@ begin
       address_bus    => ADDRESS_BUS,
       halt           => HALT,
       wait_n         => WAIT_N,
-      int            => INT,
+      int            => interrupt_local,
+      ime            => interrupt_master_enable,
+      int_data       => interrupt_data,
+      int_handled    => interrupt_handled,
       nmi            => NMI,
       bus_req        => BUSREQ,
       bus_ack        => BUSACK,
@@ -237,6 +270,9 @@ begin
       exchange_af    => exchange_af,
       exchange_prime => exchange_prime);
 
+  -----------------------------------------------------------------------------
+  -- Arithmetic Logic Unit
+  -----------------------------------------------------------------------------
   u_alu : entity work.alu
     port map (
       clk             => CLK,
