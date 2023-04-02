@@ -6,7 +6,7 @@
 -- Author     : Steve Robichaud
 -- Company    : Self
 -- Created    : 2022-08-14
--- Last update: 2022-09-05
+-- Last update: 2023-04-02
 -- Platform   : 
 -- Standard   : VHDL'08
 -------------------------------------------------------------------------------
@@ -115,6 +115,7 @@ entity cpu_control is
     and_db         : out std_logic;
     or_reg         : out std_logic_vector(3 downto 0);
     or_db          : out std_logic;
+    db_io          : out std_logic;
     xor_reg        : out std_logic_vector(3 downto 0);
     xor_db         : out std_logic;
     load_regs      : out std_logic_vector(6 downto 0);
@@ -181,6 +182,7 @@ architecture rtl of cpu_control is
   signal sp_to_pc_l                        : std_logic;
   signal multi_command                     : std_logic                    := '0';
   signal bus_ack_l                         : std_logic;
+  signal skip_write                        : std_logic                    := '0';
   -----------------------------------------------------------------------------
   -----------------------------------------------------------------------------
   -- Aliases
@@ -194,8 +196,6 @@ begin
   halt   <= not(l_halt);
 
   sp_to_pc <= sp_to_pc_l;
-
-  use_cmd <= multi_command;
   
   process(clk, reset)
   begin
@@ -219,8 +219,12 @@ begin
     end if;
   end process;
 
-  u_sequence : process (current_state, current_time_step, wait_n, flags_reg, instruction_register)
+  u_sequence : process (current_state, current_time_step, wait_n, flags_reg, instruction_register, reset)
   begin
+
+    if reset = '0' then
+      l_stop <= '0';
+    end if;
 
     ---------------------------------------------------------------------------
     -- Update time step
@@ -248,9 +252,11 @@ begin
     pop_reg        <= (others => '0');
     add_hl         <= (others => '0');
     pc_to_sp       <= '0';
+    use_cmd        <= '0';
     pc_to_sp_p3    <= '0';
     sp_to_pc_l     <= '0';
     m1_o           <= '1';
+    db_io          <= '0';
     rfsh           <= '1';
     Load_PC        <= '0';
     Load_DB        <= '0';
@@ -303,6 +309,7 @@ begin
         flag_only  <= '0';
         Inc_PC     <= '0';
         jump_pc    <= '0';
+        skip_write <= '0';
         if current_time_step = T1 then
           Inc_PC <= '1';
           m1_o   <= '0';
@@ -335,6 +342,7 @@ begin
                 next_state      <= M3;
                 write_bytes_req <= "00";
                 Load_Reg        <= '1';
+                reg_to_db       <= (others => '1');
                 ab_reg_sel      <= instruction_register(5 downto 4);
 
               -- INC ss
@@ -342,10 +350,12 @@ begin
                 next_state    <= M15;
                 delay_loops   <= "00";
                 increment_reg <= instruction_register(5 downto 4) & '1';
+                Load_PC       <= '1';
 
               -- INC r
               when x"04" | x"0C" | x"14" | x"1C" | x"24" | x"2C" | x"3C" =>
                 inc_8b_reg <= instruction_register(5 downto 3) & '1';
+                Load_PC    <= '1';
 
               -- INC (HL)
               when x"34" =>
@@ -359,10 +369,12 @@ begin
                 next_state    <= M15;
                 delay_loops   <= "00";
                 decrement_reg <= instruction_register(5 downto 4) & '1';
+                Load_PC       <= '1';
 
               -- DEC r
               when x"05" | x"0D" | x"15" | x"1D" | x"25" | x"2D" | x"3D" =>
                 dec_8b_reg <= instruction_register(5 downto 3) & '1';
+                Load_PC    <= '1';
 
               -- DEC (HL)
               when x"35" =>
@@ -380,6 +392,7 @@ begin
                 x"68" | x"69" | x"6A" | x"6B" | x"6C" | x"6D" | x"6F" |
                 x"78" | x"79" | x"7A" | x"7B" | x"7C" | x"7D" | x"7F" =>
                 load_regs <= instruction_register(5 downto 0) & '1';
+                Load_PC   <= '1';
 
               -- Load r,n
               when x"06" | x"0E" | x"16" | x"1E" | x"26" | x"2E" | x"3E" =>
@@ -461,22 +474,26 @@ begin
                 next_state  <= M15;
                 delay_loops <= "00";
                 hl_ld_sp    <= '1';
+                Load_PC     <= '1';
 
               -- Push qq
               when x"C5" | x"D5" | x"E5" | x"F5" =>
                 next_state  <= M15;
                 delay_loops <= "10";
                 push_reg    <= instruction_register(5 downto 4) & '1';
+                Load_PC     <= '1';
 
               --Pop qq
               when x"C1" | x"D1" | x"E1" | x"F1" =>
                 next_state  <= M15;
                 delay_loops <= "01";
                 pop_reg     <= instruction_register(5 downto 4) & '1';
+                Load_PC     <= '1';
 
               -- Exchange DE, HL
               when x"EB" =>
                 exchange_de_hl <= '1';
+                Load_PC        <= '1';
 
               -- (GB) LD (nn), SP; (Z80)Exchange AF, AF'
               when x"08" =>
@@ -486,9 +503,12 @@ begin
                 Inc_PC         <= '1';
                 Load_PC        <= '1';
 
-              -- Exchange (Swap prime and not prime)
+              -- (GB) RETI (Z80) Exchange (Swap prime and not prime)
               when x"D9" =>
-                exchange_prime <= '1';
+                next_state   <= M15;
+                delay_loops  <= "10";
+                sp_to_pc_l   <= '1';
+                enable_inter <= '1';
 
               -- Exchange (SP), HL
               when x"E3" =>
@@ -497,6 +517,7 @@ begin
               -- Add A, r
               when x"80" | x"81" | x"82" | x"83" | x"84" | x"85" | x"87" =>
                 add_reg <= instruction_register(2 downto 0) & '1';
+                Load_PC <= '1';
 
               -- Add A, n
               when x"C6" =>
@@ -516,6 +537,7 @@ begin
               when x"88" | x"89" | x"8A" | x"8B" | x"8C" | x"8D" | x"8F" =>
                 add_reg <= instruction_register(2 downto 0) & '1';
                 use_cf  <= '1';
+                Load_PC <= '1';
 
               -- ADC A, n
               when x"CE" =>
@@ -538,10 +560,12 @@ begin
                 next_state  <= M15;
                 delay_loops <= "00";
                 add_hl      <= instruction_register(5 downto 4) & '1';
+                Load_PC     <= '1';
 
               -- Sub A, r
               when x"90" | x"91" | x"92" | x"93" | x"94" | x"95" | x"97" =>
                 sub_reg <= instruction_register(2 downto 0) & '1';
+                Load_PC <= '1';
 
               -- Sub A, n
               when x"D6" =>
@@ -561,6 +585,7 @@ begin
               when x"98" | x"99" | x"9A" | x"9B" | x"9C" | x"9D" | x"9F" =>
                 sub_reg <= instruction_register(2 downto 0) & '1';
                 use_cf  <= '1';
+                Load_PC <= '1';
 
               -- SBC A, n
               when x"DE" =>
@@ -581,6 +606,7 @@ begin
               -- AND r
               when x"A0" | x"A1" | x"A2" | x"A3" | x"A4" | x"A5" | x"A7" =>
                 and_reg <= instruction_register(2 downto 0) & '1';
+                Load_PC <= '1';
 
               -- And n
               when x"E6" =>
@@ -598,7 +624,8 @@ begin
 
               -- OR r
               when x"B0" | x"B1" | x"B2" | x"B3" | x"B4" | x"B5" | x"B7" =>
-                or_reg <= instruction_register(2 downto 0) & '1';
+                or_reg  <= instruction_register(2 downto 0) & '1';
+                Load_PC <= '1';
 
               -- OR n
               when x"F6" =>
@@ -617,6 +644,7 @@ begin
               -- XOR r
               when x"A8" | x"A9" | x"AA" | x"AB" | x"AC" | x"AD"| x"AF" =>
                 xor_reg <= instruction_register(2 downto 0) & '1';
+                Load_PC <= '1';
 
               -- XOR n
               when x"EE" =>
@@ -636,6 +664,7 @@ begin
               when x"B8" | x"B9" | x"BA" | x"BB" | x"BC" | x"BD" | x"BF" =>
                 sub_reg   <= instruction_register(2 downto 0) & '1';
                 flag_only <= '1';
+                Load_PC   <= '1';
 
               -- CP n
               when x"FE" =>
@@ -656,18 +685,22 @@ begin
               -- DAA
               when x"27" =>
                 preform_daa <= '1';
+                Load_PC     <= '1';
 
               -- Not A
               when x"2F" =>
                 not_acc <= '1';
+                Load_PC <= '1';
 
               -- NOT Carry flag
               when x"3F" =>
-                not_cf <= '1';
+                not_cf  <= '1';
+                Load_PC <= '1';
 
               -- Set Carry
               when x"37" =>
-                set_cf <= '1';
+                set_cf  <= '1';
+                Load_PC <= '1';
 
               -- Halt
               when x"76" =>
@@ -676,33 +709,40 @@ begin
               -- DI (diables maskable interrupt; sets IFF1 & 2)
               when x"F3" =>
                 disable_inter <= '1';
+                Load_PC       <= '1';
 
               -- EI (Enable maskable interrupt)
               when x"FB" =>
                 enable_inter <= '1';
+                Load_PC      <= '1';
 
               -- RLCA
               when x"07" =>
                 rotate_l_a <= '1';
+                Load_PC    <= '1';
 
               -- RLA
               when x"17" =>
                 rotate_l_a <= '1';
                 thru_cf    <= '1';
+                Load_PC    <= '1';
 
               -- RRCA
               when x"0F" =>
                 rotate_r_a <= '1';
+                Load_PC    <= '1';
 
               -- RRA
               when x"1F" =>
                 rotate_r_a <= '1';
                 thru_cf    <= '1';
+                Load_PC    <= '1';
 
               -- JP nn
               when x"C3" =>
                 next_state     <= M2;
                 read_bytes_req <= "01";
+                delay_loops    <= "01";
                 Inc_PC         <= '1';
                 Load_PC        <= '1';
                 jump_pc        <= '1';
@@ -714,20 +754,24 @@ begin
                 Inc_PC         <= '1';
                 Load_PC        <= '1';
                 if instruction_register(5 downto 3) = "000" and zero_flag = '0' then
-                  jump_pc <= '1';
+                  jump_pc     <= '1';
+                  delay_loops <= "01";
                 elsif instruction_register(5 downto 3) = "001" and zero_flag = '1' then
-                  jump_pc <= '1';
+                  jump_pc     <= '1';
+                  delay_loops <= "01";
                 elsif instruction_register(5 downto 3) = "010" and carry_flag = '0' then
-                  jump_pc <= '1';
+                  jump_pc     <= '1';
+                  delay_loops <= "01";
                 elsif instruction_register(5 downto 3) = "011" and carry_flag = '1' then
-                  jump_pc <= '1';
+                  jump_pc     <= '1';
+                  delay_loops <= "01";
                 end if;
 
               -- JR e
               when x"18" =>
                 next_state     <= M2;
                 read_bytes_req <= "00";
-                Inc_PC         <= '1';
+                delay_loops    <= "01";
                 Load_PC        <= '1';
                 jump_pc        <= '1';
 
@@ -735,49 +779,54 @@ begin
               when x"38" =>
                 next_state     <= M2;
                 read_bytes_req <= "00";
-                Inc_PC         <= '1';
                 Load_PC        <= '1';
                 if carry_flag = '1' then
                   jump_pc        <= '1';
                   delay_loops    <= "01";
+                else
+                  Inc_PC <= '1';
                 end if;
 
               -- JR NC, e
               when x"30" =>
                 next_state     <= M2;
                 read_bytes_req <= "00";
-                Inc_PC         <= '1';
                 Load_PC        <= '1';
                 if carry_flag = '0' then
                   jump_pc        <= '1';
                   delay_loops    <= "01";
+                else
+                  Inc_PC <= '1';
                 end if;
 
               -- JR Z, e
               when x"28" =>
                 next_state     <= M2;
                 read_bytes_req <= "00";
-                Inc_PC         <= '1';
                 Load_PC        <= '1';
                 if zero_flag = '1' then
                   jump_pc        <= '1';
                   delay_loops    <= "01";
+                else
+                  Inc_PC <= '1';
                 end if;
 
               -- JR NZ, e
               when x"20" =>
                 next_state     <= M2;
                 read_bytes_req <= "00";
-                Inc_PC         <= '1';
                 Load_PC        <= '1';
                 if zero_flag = '0' then
                   jump_pc        <= '1';
                   delay_loops    <= "01";
+                else
+                  Inc_PC <= '1';
                 end if;
 
               -- JP (HL)
               when x"E9" =>
-                PC_HL <= '1';
+                PC_HL   <= '1';
+                Load_PC <= '1';
                 
 
               -- (GB) STOP; (Z80) DJNZ, e
@@ -788,6 +837,7 @@ begin
               when x"CD" =>
                 next_state     <= M2;
                 read_bytes_req <= "01";
+                delay_loops    <= "11";
                 Inc_PC         <= '1';
                 Load_PC        <= '1';
                 jump_pc        <= '1';
@@ -803,30 +853,32 @@ begin
                 if instruction_register(5 downto 3) = "000" and zero_flag = '0' then
                   jump_pc     <= '1';
                   pc_to_sp_p3 <= '1';
-                  delay_loops <= "10";
+                  delay_loops <= "11";
                 elsif instruction_register(5 downto 3) = "001" and zero_flag = '1' then
                   jump_pc     <= '1';
                   pc_to_sp_p3 <= '1';
-                  delay_loops <= "10";
+                  delay_loops <= "11";
                 elsif instruction_register(5 downto 3) = "010" and carry_flag = '0' then
                   jump_pc     <= '1';
                   pc_to_sp_p3 <= '1';
-                  delay_loops <= "10";
+                  delay_loops <= "11";
                 elsif instruction_register(5 downto 3) = "011" and carry_flag = '1' then
                   jump_pc     <= '1';
                   pc_to_sp_p3 <= '1';
-                  delay_loops <= "10";
+                  delay_loops <= "11";
                 end if;
 
               -- RET
               when x"C9" =>
                 next_state  <= M15;
-                delay_loops <= "01";
+                delay_loops <= "10";
                 sp_to_pc_l  <= '1';
+                Load_PC     <= '1';
 
               -- RET cc
               when x"C0" | x"C8" | x"D0" | x"D8" =>
                 next_state  <= M15;
+                Load_PC     <= '1';
                 if instruction_register(5 downto 3) = "000" and zero_flag = '0' then
                   delay_loops <= "11";
                   sp_to_pc_l  <= '1';
@@ -846,10 +898,11 @@ begin
               -- RST p
               when x"C7" | x"CF" | x"D7" | x"DF" | x"E7" | x"EF" | x"F7" | x"FF" =>
                 next_state  <= M15;
-                delay_loops <= "01";
+                delay_loops <= "10";
                 pc_rst      <= '1';
                 reset_val   <= instruction_register(5 downto 3);
                 pc_to_sp    <= '1';
+                Load_PC     <= '1';
 
               -- LDH (n), A (GB only)
               when x"E0" =>
@@ -883,6 +936,8 @@ begin
                 next_state     <= M18;
                 read_bytes_req <= "01";
                 Load_PC        <= '1';
+                Inc_PC         <= '1';
+                db_to_regs     <= x"F";
 
               -- LD A, (C)
               when x"F2" =>
@@ -911,6 +966,7 @@ begin
               -----------------------------------------------------------------
               when x"CB" =>
                 multi_command <= '1';
+                Load_PC       <= '1';
 
               when others => null;
             end case;
@@ -923,6 +979,13 @@ begin
               read_bytes_req <= "00";
               Load_Reg       <= '1';
               ab_reg_sel     <= "10";
+              case (instruction_register(7 downto 4)) is
+                when x"4" | x"5" | x"6" | x"7" => skip_write <= '1';
+                when others => null;
+              end case;
+            else
+              Load_PC <= '1';
+              use_cmd <= '1';
             end if;
           end if;
         end if;
@@ -932,20 +995,36 @@ begin
       when M2 | M4 | M5 | M6 | M7 | M8 | M9 | M10 | M11 | M12 | M13 | M16 | M17 | M18 | M19 | M20 =>
         if current_time_step = T4 then
           if not(current_state = M4 or current_state = M5 or current_state = M6 or
-                 current_state = M12 or current_state = M13 or current_state = M16 or
+                 current_state = M12 or current_state = M13  or
                  current_state = M17 or current_state = M18) then
             Load_PC <= '1';
+          elsif current_state = M4 then
+            use_cmd <= '1';
           elsif current_state = M13 then
             if read_bytes_req = "01" then
+              Inc_PC   <= '1';
+              Load_PC  <= '1';
               Load_Add <= '1';
-              Inc_PC   <= '0';
             else
               Load_Add <= '1';
+              Load_PC  <= '0';
+              Inc_PC   <= '0';
             end if;
-          elsif current_state = M16 or current_state = M18 then
-            Load_DB <= '1';
-            if read_bytes_req = "01" then
-              Inc_PC <= '0';
+          elsif current_state = M18 then
+            if read_bytes_req > "01" then
+              Load_Add <= '1';
+              Load_PC  <= '1';
+            elsif read_bytes_req = "01" then
+              Inc_PC  <= '0';
+              if instruction_register = x"F0" then
+                Load_DB <= '1';
+              else
+                Load_PC <= '1';
+                Load_Add <= '1';
+              end if;
+              
+            else
+              Load_PC <= '1';
             end if;
           elsif current_state = M17 then
             if read_bytes_req = "01" then
@@ -979,10 +1058,21 @@ begin
                 when M20    => hl_pl_sp   <= '1';
                 when others => null;
               end case;
-            elsif current_state = M4 or current_state = M12 then
+            elsif current_state = M4 then
+              if skip_write = '0' then
+                next_state      <= M3;
+                write_bytes_req <= "00";
+                ab_reg_sel      <= "10";
+                db_io           <= '1';
+              else
+                next_state <= M1;
+                Load_PC    <= '1';
+              end if;
+            elsif current_state = M12 then
               next_state      <= M3;
               write_bytes_req <= "00";
               ab_reg_sel      <= "10";
+              db_io           <= '1';
             elsif current_state = M13 then
               next_state      <= M14;
               write_bytes_req <= "01";
@@ -992,6 +1082,12 @@ begin
               write_bytes_req <= "00";
               reg_to_db       <= x"F";
               Inc_PC          <= '0';
+              Load_PC         <= '0';
+              if current_state = M16 then
+                Load_DB <= '1';
+              else
+                Load_Add <= '1';
+              end if;
             else
               next_state      <= M3;
               write_bytes_req <= "00";
@@ -1015,15 +1111,15 @@ begin
             Load_PC <= '1';
           else
             Inc_Add      <= '1';
-            reg_16_to_db <= "111";
+            if write_bytes_req /= "00" then
+              reg_16_to_db <= "111";
+            else
+              Load_PC <= '1';
+            end if;
           end if;
 
           if write_bytes_req = "00" then
-            if current_state = M14 then
-              next_state <= M15;
-            else
-              next_state <= M1;  
-            end if;
+            next_state <= M1;  
           else
             write_bytes_req <= write_bytes_req - "1";
           end if;
@@ -1050,22 +1146,28 @@ begin
   -- Falling edge of the first clock in the fetch state, increments the PC.
   -----------------------------------------------------------------------------
   u_pc : process(clk, reset)
-    variable temp_pc : std_logic_vector(15 downto 0);
-    variable update  : std_logic;
-    variable toggle  : std_logic;
+    variable temp_pc     : std_logic_vector(15 downto 0);
+    variable update      : std_logic;
+    variable update_done : std_logic;
+    variable toggle      : std_logic;
   begin
     if reset = '0' then
       program_counter <= (others => '0');
       temp_pc         := (others => '0');
       pc_out          <= (others => '0');
       update          := '0';
+      update_done     := '0';
       toggle          := '0';
+      l_halt          <= '0';
+      l_stop          <= '0';
     elsif falling_edge(clk) then
-      pc_out <= program_counter;
+      pc_out      <= program_counter;
+      update_done := '0';
       if (Inc_PC = '1' and current_time_step = T1) and l_halt = '0' and l_stop = '0' then
         program_counter <= std_logic_vector(unsigned(program_counter) + "1");
       elsif update = '1' then
         program_counter <= temp_pc;
+        update_done     := '1';
       elsif PC_HL = '1' then
         program_counter <= register_hl;
       elsif sp_to_pc_l = '1' then
@@ -1088,7 +1190,7 @@ begin
           if instruction_register = x"18" or instruction_register = x"38" or instruction_register = x"30" or
           instruction_register = x"28" or instruction_register = x"20" then
             update  := '1';
-            temp_pc := std_logic_vector(resize((signed('0' & program_counter) + signed(data_bus) - x"2"), 16));
+            temp_pc := std_logic_vector(resize((signed('0' & program_counter) + signed(data_bus) + x"1"), 16));
           else
             if toggle = '0' then
               temp_pc(7 downto 0) := data_bus;
@@ -1100,7 +1202,9 @@ begin
           end if;
         end if;
       end if;
-      update := '0';
+      if update_done = '1' then
+        update := '0';  
+      end if;
     end if;
   end process;
 
@@ -1176,11 +1280,15 @@ begin
     if reset = '0' then
       mreq <= '1';
     elsif rising_edge(clk) then
-      if (current_state = M1 or current_state = M2) and current_time_step = T1 then
+      if (current_state = M1 or current_state = M2 or current_state = M13 or current_state = M12 or
+          current_state = M6 or current_state = M5 or current_state = M4 or current_state = M7 or
+          current_state = M8 or current_state = M9 or current_state = M10 or current_state = M11 or
+          current_state = M16 or current_state = M17 or current_state = M18 or current_state = M19 or
+          current_state = M20) and current_time_step = T1 then
         mreq <= '0';
       elsif current_state = M1 and current_time_step = T3 then
         mreq <= '0';
-      elsif current_state = M3 and current_time_step = T2 then
+      elsif (current_state = M3 or current_state = M14) and current_time_step = T2 then
         mreq <= '0';
       else
         mreq <= '1';
@@ -1189,14 +1297,18 @@ begin
   end process;
 
   -----------------------------------------------------------------------------
-  -- RD logic
+  -- RD logic  M2 | M4 | M5 | M6 | M7 | M8 | M9 | M10 | M11 | M12 | M13 | M16 | M17 | M18 | M19 | M20
   -----------------------------------------------------------------------------
   u_rd : process(clk, reset)
   begin
     if reset = '0' then
       rd <= '1';
     elsif rising_edge(clk) then
-      if (current_state = M1 or current_state = M2)and current_time_step = T1 then
+      if (current_state = M1 or current_state = M2 or current_state = M13 or current_state = M12 or
+          current_state = M6 or current_state = M5 or current_state = M4 or current_state = M7 or
+          current_state = M8 or current_state = M9 or current_state = M10 or current_state = M11 or
+          current_state = M16 or current_state = M17 or current_state = M18 or current_state = M19 or
+          current_state = M20) and current_time_step = T1 then
         rd <= '0';
       else
         rd <= '1';

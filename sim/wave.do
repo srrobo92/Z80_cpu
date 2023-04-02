@@ -1,0 +1,202 @@
+onerror {resume}
+quietly WaveActivateNextPane {} 0
+add wave -noupdate -group IO /cpu_tb/u0/CLK
+add wave -noupdate -group IO /cpu_tb/u0/M1
+add wave -noupdate -group IO /cpu_tb/u0/MREQ
+add wave -noupdate -group IO /cpu_tb/u0/RD
+add wave -noupdate -group IO /cpu_tb/u0/WR
+add wave -noupdate -group IO /cpu_tb/u0/RFSH
+add wave -noupdate -group IO /cpu_tb/u0/WAIT_N
+add wave -noupdate -group IO /cpu_tb/u0/HALT
+add wave -noupdate -group IO /cpu_tb/u0/INT
+add wave -noupdate -group IO /cpu_tb/u0/NMI
+add wave -noupdate -group IO /cpu_tb/u0/RESET
+add wave -noupdate -group IO /cpu_tb/u0/BUSREQ
+add wave -noupdate -group IO /cpu_tb/u0/BUSACK
+add wave -noupdate -group IO /cpu_tb/u0/ADDRESS_BUS
+add wave -noupdate -group IO /cpu_tb/u0/DATA_BUS_I
+add wave -noupdate -group IO /cpu_tb/u0/DATA_BUS_O
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/clk
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/reset
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/data_bus
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/address_bus
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/register_bc
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/register_de
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/register_hl
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/stack_data
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/register_c
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/flags_reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/pc_out
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/halt
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/wait_n
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/int
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/nmi
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/bus_req
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/bus_ack
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/mreq
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/rd
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/wr
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/m1_o
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/rfsh
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/update_reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/increment_reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/decrement_reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/inc_8b_reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/dec_8b_reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/bit_reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/bit_cmd
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/use_cmd
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/inc_db
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/dec_db
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/add_reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/add_hl
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/hl_pl_sp
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/add_db
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/use_cf
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/sub_reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/sub_db
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/and_reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/and_db
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/or_reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/or_db
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/db_io
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/xor_reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/xor_db
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/load_regs
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/db_to_regs
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/reg_to_db
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/reg_16_to_db
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/push_reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/pop_reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/pc_to_sp
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/pc_to_sp_p3
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/sp_to_pc
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/sp_add
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/flag_only
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/preform_daa
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/not_acc
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/not_cf
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/set_cf
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/enable_inter
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/disable_inter
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/rotate_l_a
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/thru_cf
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/rotate_r_a
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/hl_ld_sp
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/exchange_de_hl
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/exchange_af
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/exchange_prime
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/current_state
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/next_state
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/current_time_step
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/next_time_step
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/program_counter
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/instruction_register
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/interrupt_register
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/refresh_register
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/read_bytes_req
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/write_bytes_req
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/delay_loops
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/ab_reg_sel
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/Inc_PC
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/Load_PC
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/Load_DB
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/Load_C
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/Load_Reg
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/l_halt
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/l_stop
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/jump_pc
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/Load_Add
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/PC_HL
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/reset_val
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/pc_rst
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/sp_to_pc_l
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/multi_command
+add wave -noupdate -group CONTROL /cpu_tb/u0/u_control/bus_ack_l
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/clk
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/reset
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/wr
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/rd
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/data_bus_i
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/data_bus_o
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/flags_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/b_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/c_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/d_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/e_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/accumulator_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/h_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/l_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/stack_data
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/pc_in
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/db_io
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/update_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/increment_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/decrement_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/inc_8b_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/dec_8b_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/bit_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/bit_cmd
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/use_cmd
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/inc_db
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/dec_db
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/add_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/add_hl
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/hl_pl_sp
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/add_db
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/use_cf
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/sub_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/sub_db
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/and_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/and_db
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/or_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/or_db
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/xor_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/xor_db
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/load_regs
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/db_to_regs
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/reg_to_db
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/reg_16_to_db
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/push_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/pop_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/pc_to_sp
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/pc_to_sp_p3
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/sp_to_pc
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/sp_add
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/flag_only
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/preform_daa
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/not_acc
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/not_cf
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/set_cf
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/rotate_l_a
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/thru_cf
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/rotate_r_a
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/hl_ld_sp
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/accum_local
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/flags_reg_local
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/reg_bc
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/reg_de
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/reg_hl
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/stack_pointer
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/stack_pointer_mem
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/data_bus_reg
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/zero_flag
+add wave -noupdate -group ALU /cpu_tb/u0/u_alu/carry_flag
+TreeUpdate [SetDefaultTree]
+WaveRestoreCursors {{Cursor 1} {0 ps} 0}
+quietly wave cursor active 0
+configure wave -namecolwidth 150
+configure wave -valuecolwidth 100
+configure wave -justifyvalue left
+configure wave -signalnamewidth 0
+configure wave -snapdistance 10
+configure wave -datasetprefix 0
+configure wave -rowmargin 4
+configure wave -childrowmargin 2
+configure wave -gridoffset 0
+configure wave -gridperiod 1
+configure wave -griddelta 40
+configure wave -timeline 0
+configure wave -timelineunits ns
+update
+WaveRestoreZoom {0 ps} {33761 ps}

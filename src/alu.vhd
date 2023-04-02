@@ -6,7 +6,7 @@
 -- Author     : Steve Robichaud
 -- Company    : Self
 -- Created    : 2022-09-03
--- Last update: 2022-09-06
+-- Last update: 2023-04-01
 -- Platform   : 
 -- Standard   : VHDL'08
 -------------------------------------------------------------------------------
@@ -36,6 +36,7 @@ entity alu is
     ---------------------------------------------------------------------------
     -- Top level control/data
     ---------------------------------------------------------------------------
+    wr              : in  std_logic;
     rd              : in  std_logic;
     data_bus_i      : in  std_logic_vector(7 downto 0);
     data_bus_o      : out std_logic_vector(7 downto 0);
@@ -55,6 +56,7 @@ entity alu is
     -- Control lines in
     ---------------------------------------------------------------------------
     pc_in           : in  std_logic_vector(15 downto 0);
+    db_io           : in  std_logic;
     update_reg      : in  std_logic_vector(2 downto 0);
     increment_reg   : in  std_logic_vector(2 downto 0);
     decrement_reg   : in  std_logic_vector(2 downto 0);
@@ -110,12 +112,13 @@ architecture rtl of alu is
   -----------------------------------------------------------------------------
   -- Signals
   signal accum_local       : std_logic_vector(7 downto 0);
-  signal flags_reg_local   : std_logic_vector(7 downto 0)  := (others => '0');
+  signal flags_reg_local   : std_logic_vector(7 downto 0) := (others => '0');
   signal reg_bc            : std_logic_vector(15 downto 0);
   signal reg_de            : std_logic_vector(15 downto 0);
   signal reg_hl            : std_logic_vector(15 downto 0);
   signal stack_pointer     : unsigned(15 downto 0);
-  signal stack_pointer_mem : mem                           := (others => (others => '0'));
+  signal stack_pointer_mem : mem                          := (others => (others => '0'));
+  signal data_bus_reg      : std_logic_vector(7 downto 0) := (others => '0');
   -----------------------------------------------------------------------------
   -----------------------------------------------------------------------------
   -- Aliases
@@ -135,6 +138,7 @@ begin
 
   u_alu : process(clk, reset)
     variable toggle               : std_logic := '0';
+    variable hold_sp_to_db        : std_logic := '0';
     variable reg_results          : unsigned(8 downto 0);
     variable half_carry_results   : unsigned(4 downto 0);
     variable reg16_results        : unsigned(16 downto 0);
@@ -158,6 +162,7 @@ begin
       half_carry_results := (others => '0');
       flags_reg          <= (others => '0');
       flags_reg_local    <= (others => '0');
+      data_bus_o         <= (others => '0');
     elsif rising_edge(clk) then
       -- UPDATE TOP LEVEL REGISTERS
       accumulator_reg <= accum_local;
@@ -168,11 +173,12 @@ begin
       e_reg           <= reg_e_local;
       h_reg           <= reg_h_local;
       l_reg           <= reg_l_local;
-
+      -- UPDATE OUTPUT
+      data_bus_o      <= data_bus_reg;
       -------------------------------------------------------------------------
       -- Stack
       -------------------------------------------------------------------------
-      stack_data <= stack_pointer_mem(to_integer(stack_pointer+"1")) & stack_pointer_mem(to_integer(stack_pointer));
+      stack_data      <= stack_pointer_mem(to_integer(stack_pointer+"10")) & stack_pointer_mem(to_integer(stack_pointer+"1"));
 
       -- Pop PC
       if sp_to_pc = '1' then
@@ -181,7 +187,7 @@ begin
 
       -- Push PC
       if pc_to_sp = '1' then
-        stack_pointer <= stack_pointer - "10";
+        stack_pointer                                    <= stack_pointer - "10";
         --
         stack_pointer_mem(to_integer(stack_pointer))     <= pc_in(15 downto 8);
         stack_pointer_mem(to_integer(stack_pointer-"1")) <= pc_in(7 downto 0);
@@ -190,8 +196,8 @@ begin
       -- Push PC + 3
       -- Used when PC needs to read multiple bytes from program first
       if pc_to_sp_p3 = '1' then
-        reg16_results := unsigned('0' & pc_in) + "11";
-        stack_pointer <= stack_pointer - "10";
+        reg16_results                                    := unsigned('0' & pc_in) + "10";
+        stack_pointer                                    <= stack_pointer - "10";
         --
         stack_pointer_mem(to_integer(stack_pointer))     <= std_logic_vector(reg16_results(15 downto 8));
         stack_pointer_mem(to_integer(stack_pointer-"1")) <= std_logic_vector(reg16_results(7 downto 0));
@@ -205,13 +211,13 @@ begin
           when "00" =>
             stack_pointer_mem(to_integer(stack_pointer))     <= reg_b_local;
             stack_pointer_mem(to_integer(stack_pointer-"1")) <= reg_c_local;
-          when "01" => 
+          when "01" =>
             stack_pointer_mem(to_integer(stack_pointer))     <= reg_d_local;
             stack_pointer_mem(to_integer(stack_pointer-"1")) <= reg_e_local;
-          when "10" => 
+          when "10" =>
             stack_pointer_mem(to_integer(stack_pointer))     <= reg_h_local;
             stack_pointer_mem(to_integer(stack_pointer-"1")) <= reg_l_local;
-          when "11" => 
+          when "11" =>
             stack_pointer_mem(to_integer(stack_pointer))     <= accum_local;
             stack_pointer_mem(to_integer(stack_pointer-"1")) <= flags_reg_local;
           when others => null;
@@ -224,19 +230,132 @@ begin
         --
         case pop_reg(2 downto 1) is
           when "00" =>
-            reg_b_local <= stack_pointer_mem(to_integer(stack_pointer+"1"));
-            reg_c_local <= stack_pointer_mem(to_integer(stack_pointer));
-          when "01" => 
-            reg_d_local <= stack_pointer_mem(to_integer(stack_pointer+"1"));
-            reg_e_local <= stack_pointer_mem(to_integer(stack_pointer));
-          when "10" => 
-            reg_h_local <= stack_pointer_mem(to_integer(stack_pointer+"1"));
-            reg_l_local <= stack_pointer_mem(to_integer(stack_pointer));
-          when "11" => 
-            accum_local     <= stack_pointer_mem(to_integer(stack_pointer+"1"));
-            flags_reg_local <= stack_pointer_mem(to_integer(stack_pointer));
+            reg_b_local <= stack_pointer_mem(to_integer(stack_pointer+"10"));
+            reg_c_local <= stack_pointer_mem(to_integer(stack_pointer+"1"));
+          when "01" =>
+            reg_d_local <= stack_pointer_mem(to_integer(stack_pointer+"10"));
+            reg_e_local <= stack_pointer_mem(to_integer(stack_pointer+"1"));
+          when "10" =>
+            reg_h_local <= stack_pointer_mem(to_integer(stack_pointer+"10"));
+            reg_l_local <= stack_pointer_mem(to_integer(stack_pointer+"1"));
+          when "11" =>
+            accum_local     <= stack_pointer_mem(to_integer(stack_pointer+"10"));
+            flags_reg_local <= stack_pointer_mem(to_integer(stack_pointer+"1"));
           when others => null;
         end case;
+      end if;
+
+      -------------------------------------------------------------------------
+      -- Preform DAA 
+      -------------------------------------------------------------------------
+      if (preform_daa = '1') then
+        half_carry_flag <= '0';
+        if sub_flag = '0' then
+          if carry_flag = '0' then
+            case accum_local(7 downto 4) is
+              when x"0" | x"1" | x"2" | x"3" | x"4" | x"5" | x"6" | x"7" | x"8" =>
+                if (accum_local(3 downto 0) > x"9") and (half_carry_flag = '0') then
+                  reg_results := unsigned('0' & accum_local) + x"6";
+                  accum_local <= std_logic_vector(reg_results(7 downto 0));
+                  carry_flag  <= '0';
+                elsif (accum_local(3 downto 0) < x"4") and (half_carry_flag = '1') then
+                  reg_results := unsigned('0' & accum_local) + x"6";
+                  accum_local <= std_logic_vector(reg_results(7 downto 0));
+                  carry_flag  <= '0';
+                end if;
+              when x"9" =>
+                if (accum_local(3 downto 0) > x"9") and (half_carry_flag = '0') then
+                  reg_results := unsigned('0' & accum_local) + x"66";
+                  accum_local <= std_logic_vector(reg_results(7 downto 0));
+                  carry_flag  <= '1';
+                elsif (accum_local(3 downto 0) < x"4") and (half_carry_flag = '1') then
+                  reg_results := unsigned('0' & accum_local) + x"6";
+                  accum_local <= std_logic_vector(reg_results(7 downto 0));
+                  carry_flag  <= '0';
+                end if;
+              when x"A" | x"B" | x"C" | x"D" | x"E" | x"F" =>
+                if (half_carry_flag = '0') then
+                  if accum_local(3 downto 0) < x"A" then
+                    reg_results := unsigned('0' & accum_local) + x"60";
+                    accum_local <= std_logic_vector(reg_results(7 downto 0));
+                    carry_flag  <= '1';
+                  else
+                    reg_results := unsigned('0' & accum_local) + x"66";
+                    accum_local <= std_logic_vector(reg_results(7 downto 0));
+                    carry_flag  <= '1';
+                  end if;
+                else
+                  if accum_local(3 downto 0) < x"4" then
+                    reg_results := unsigned('0' & accum_local) + x"66";
+                    accum_local <= std_logic_vector(reg_results(7 downto 0));
+                    carry_flag  <= '1';
+                  end if;
+                end if;
+              when others => null;
+            end case;
+          else
+            if (accum_local(7 downto 4) < x"3") and (half_carry_flag = '0') then
+              carry_flag <= '1';
+              if accum_local(3 downto 0) < x"A" then
+                reg_results := unsigned('0' & accum_local) + x"60";
+                accum_local <= std_logic_vector(reg_results(7 downto 0));
+              else
+                reg_results := unsigned('0' & accum_local) + x"66";
+                accum_local <= std_logic_vector(reg_results(7 downto 0));
+              end if;
+            elsif (accum_local(7 downto 4) < x"4") and (half_carry_flag = '1') then
+              if accum_local(3 downto 0) < x"4" then
+                reg_results := unsigned('0' & accum_local) + x"66";
+                accum_local <= std_logic_vector(reg_results(7 downto 0));
+              end if;
+            end if;
+          end if;
+        else
+          if carry_flag = '0' then
+            carry_flag <= '0';
+            if half_carry_flag = '1' then
+              if (accum_local(7 downto 4) < x"9") and (accum_local(3 downto 0) > x"5") then
+                reg_results := unsigned('0' & accum_local) + x"FA";
+                accum_local <= std_logic_vector(reg_results(7 downto 0));
+              end if;              
+            end if;
+          else
+            carry_flag <= '1';
+            if half_carry_flag = '0' then
+              if (accum_local(7 downto 4) > x"6") and (accum_local(3 downto 0) < x"A") then
+                reg_results := unsigned('0' & accum_local) + x"A0";
+                accum_local <= std_logic_vector(reg_results(7 downto 0));
+              end if;
+            else
+              if (accum_local(7 downto 4) > x"5") and (accum_local(3 downto 0) > x"5") then
+                reg_results := unsigned('0' & accum_local) + x"9A";
+                accum_local <= std_logic_vector(reg_results(7 downto 0));
+              end if;
+            end if;
+          end if;
+        end if;
+        zero_flag          <= '1' when reg_results(7 downto 0) = x"00" else '0';
+      end if;
+
+      -------------------------------------------------------------------------
+      -- Increment / Decrement Data bus
+      -------------------------------------------------------------------------
+      if (inc_db = '1') then
+        sub_flag           <= '0';
+        reg_results        := unsigned('0' & reg_d_local) + "1";
+        half_carry_results := unsigned('0' & reg_d_local(3 downto 0)) + "1";
+        half_carry_flag    <= half_carry_results(4);
+        accum_local        <= std_logic_vector(unsigned(data_bus_i) + '1');
+        zero_flag          <= '1' when reg_results(7 downto 0) = x"00" else '0';
+      end if;
+
+      if (dec_db = '1') then
+        sub_flag           <= '1';
+        reg_results        := unsigned('0' & reg_d_local) + "1";
+        half_carry_results := unsigned('0' & reg_d_local(3 downto 0)) + "1";
+        half_carry_flag    <= half_carry_results(4);
+        accum_local        <= std_logic_vector(unsigned(data_bus_i) - '1');
+        zero_flag          <= '1' when reg_results(7 downto 0) = x"00" else '0';
       end if;
 
       -------------------------------------------------------------------------
@@ -345,7 +464,7 @@ begin
             half_carry_results := unsigned('0' & reg_h_local(3 downto 0)) + "1";
             half_carry_flag    <= half_carry_results(4);
           -- L
-          when "110" =>
+          when "101" =>
             reg_results        := unsigned('0' & reg_l_local) + "1";
             reg_l_local        <= std_logic_vector(reg_results(7 downto 0));
             half_carry_results := unsigned('0' & reg_l_local(3 downto 0)) + "1";
@@ -415,7 +534,7 @@ begin
             half_carry_results := unsigned('0' & reg_h_local(3 downto 0)) - "1";
             half_carry_flag    <= half_carry_results(4);
           -- L
-          when "110" =>
+          when "101" =>
             reg_results        := unsigned('0' & reg_l_local) - "1";
             reg_l_local        <= std_logic_vector(reg_results(7 downto 0));
             half_carry_results := unsigned('0' & reg_l_local(3 downto 0)) - "1";
@@ -435,9 +554,9 @@ begin
       -- Load Registers
       -------------------------------------------------------------------------
       if load_regs(0) = '1' then
-        case load_regs(3 downto 1) is
+        case load_regs(6 downto 4) is
           when "000" =>                 -- Load B
-            case load_regs(6 downto 4) is
+            case load_regs(3 downto 1) is
               when "000"  => null;      -- Load b into b does nothing
               when "001"  => reg_b_local <= reg_c_local;
               when "010"  => reg_b_local <= reg_d_local;
@@ -448,7 +567,7 @@ begin
               when others => null;
             end case;
           when "001" =>                 -- Load C
-            case load_regs(6 downto 4) is
+            case load_regs(3 downto 1) is
               when "000"  => reg_c_local <= reg_b_local;
               when "001"  => null;      -- Load c to c
               when "010"  => reg_c_local <= reg_d_local;
@@ -459,7 +578,7 @@ begin
               when others => null;
             end case;
           when "010" =>                 -- Load D
-            case load_regs(6 downto 4) is
+            case load_regs(3 downto 1) is
               when "000"  => reg_d_local <= reg_b_local;
               when "001"  => reg_d_local <= reg_c_local;
               when "010"  => null;
@@ -470,7 +589,7 @@ begin
               when others => null;
             end case;
           when "011" =>                 -- Load E
-            case load_regs(6 downto 4) is
+            case load_regs(3 downto 1) is
               when "000"  => reg_e_local <= reg_b_local;
               when "001"  => reg_e_local <= reg_c_local;
               when "010"  => reg_e_local <= reg_d_local;
@@ -481,7 +600,7 @@ begin
               when others => null;
             end case;
           when "100" =>                 -- Load H
-            case load_regs(6 downto 4) is
+            case load_regs(3 downto 1) is
               when "000"  => reg_h_local <= reg_b_local;
               when "001"  => reg_h_local <= reg_c_local;
               when "010"  => reg_h_local <= reg_d_local;
@@ -492,7 +611,7 @@ begin
               when others => null;
             end case;
           when "101" =>                 -- Load L
-            case load_regs(6 downto 4) is
+            case load_regs(3 downto 1) is
               when "000"  => reg_l_local <= reg_b_local;
               when "001"  => reg_l_local <= reg_c_local;
               when "010"  => reg_l_local <= reg_d_local;
@@ -503,7 +622,7 @@ begin
               when others => null;
             end case;
           when "111" =>
-            case load_regs(6 downto 4) is
+            case load_regs(3 downto 1) is
               when "000"  => accum_local <= reg_b_local;
               when "001"  => accum_local <= reg_c_local;
               when "010"  => accum_local <= reg_d_local;
@@ -540,15 +659,38 @@ begin
       -------------------------------------------------------------------------
       if reg_to_db(0) = '1' then
         case reg_to_db(3 downto 1) is
-          when "000"  => data_bus_o <= reg_b_local;
-          when "001"  => data_bus_o <= reg_c_local;
-          when "010"  => data_bus_o <= reg_d_local;
-          when "011"  => data_bus_o <= reg_e_local;
-          when "100"  => data_bus_o <= reg_h_local;
-          when "101"  => data_bus_o <= reg_l_local;
-          when "111"  => data_bus_o <= accum_local;
+          when "000"  => data_bus_reg <= reg_b_local;
+          when "001"  => data_bus_reg <= reg_c_local;
+          when "010"  => data_bus_reg <= reg_d_local;
+          when "011"  => data_bus_reg <= reg_e_local;
+          when "100"  => data_bus_reg <= reg_h_local;
+          when "101"  => data_bus_reg <= reg_l_local;
+          when "111"  => data_bus_reg <= accum_local;
           when others => null;
         end case;
+      elsif inc_db = '1' then
+        data_bus_reg <= std_logic_vector(unsigned(data_bus_i) + '1');
+      elsif dec_db = '1' then
+        data_bus_reg <= std_logic_vector(unsigned(data_bus_i) - '1');
+      elsif db_io = '1' then
+        data_bus_reg <= data_bus_i;
+      end if;
+
+      -------------------------------------------------------------------------
+      -- Register to data bus (16 bit)
+      -------------------------------------------------------------------------
+      if reg_16_to_db(0) = '1' then
+        hold_sp_to_db := '1';
+        if toggle = '0' then
+          data_bus_reg <= std_logic_vector(stack_pointer(7 downto 0));
+        else
+          data_bus_reg  <= std_logic_vector(stack_pointer(15 downto 8));
+          hold_sp_to_db := '0';
+          toggle        := '0';
+        end if;
+      end if;
+      if wr = '0' and hold_sp_to_db = '1' then
+        toggle := not(toggle);
       end if;
 
       -------------------------------------------------------------------------
@@ -628,36 +770,50 @@ begin
             carry_flag           <= reg16_results(16);
             half_carry16_results := unsigned('0' & reg_hl(11 downto 0)) + unsigned('0' & reg_bc(11 downto 0));
             half_carry_flag      <= half_carry16_results(12);
+            accum_local          <= std_logic_vector(reg16_results(15 downto 8));
           when "01" =>
             reg16_results        := unsigned('0' & reg_hl) + unsigned('0' & reg_de);
             reg_hl               <= std_logic_vector(reg16_results(15 downto 0));
             carry_flag           <= reg16_results(16);
             half_carry16_results := unsigned('0' & reg_hl(11 downto 0)) + unsigned('0' & reg_de(11 downto 0));
             half_carry_flag      <= half_carry16_results(12);
+            accum_local          <= std_logic_vector(reg16_results(15 downto 8));            
           when "10" =>
             reg16_results        := unsigned('0' & reg_hl) + unsigned('0' & reg_hl);
             reg_hl               <= std_logic_vector(reg16_results(15 downto 0));
             carry_flag           <= reg16_results(16);
             half_carry16_results := unsigned('0' & reg_hl(11 downto 0)) + unsigned('0' & reg_hl(11 downto 0));
             half_carry_flag      <= half_carry16_results(12);
+            accum_local          <= std_logic_vector(reg16_results(15 downto 8));            
           when "11" =>
-            reg16_results        := unsigned('0' & reg_hl) + '0' & stack_pointer;
+            reg16_results        := unsigned('0' & reg_hl) + ('0' & stack_pointer);
             reg_hl               <= std_logic_vector(reg16_results(15 downto 0));
             carry_flag           <= reg16_results(16);
-            half_carry16_results := unsigned('0' & reg_hl(11 downto 0)) + '0' & stack_pointer(11 downto 0);
+            half_carry16_results := unsigned('0' & reg_hl(11 downto 0)) + ('0' & stack_pointer(11 downto 0));
             half_carry_flag      <= half_carry16_results(12);
+            accum_local          <= std_logic_vector(reg16_results(15 downto 8));            
           when others => null;
         end case;
       end if;
 
       if sp_add = '1' then
-        reg16_results := unsigned(signed('0' & stack_pointer) + signed(data_bus_i));
-        stack_pointer <= reg16_results(15 downto 0);
+        zero_flag            <= '0';
+        sub_flag             <= '0';
+        reg16_results        := unsigned(signed('0' & stack_pointer) + signed(data_bus_i));
+        half_carry16_results := unsigned(signed('0' & stack_pointer(11 downto 0)) + signed(data_bus_i));
+        carry_flag           <= reg16_results(16);
+        half_carry_flag      <= half_carry16_results(12);
+        stack_pointer        <= reg16_results(15 downto 0);
       end if;
 
       if hl_pl_sp = '1' then
-        reg16_results := unsigned(signed('0' & stack_pointer) + signed(data_bus_i));
-        reg_hl        <= std_logic_vector(reg16_results(15 downto 0));
+        zero_flag            <= '0';
+        sub_flag             <= '0';
+        reg16_results        := unsigned(signed('0' & stack_pointer) + signed(data_bus_i));
+        half_carry16_results := unsigned(signed('0' & stack_pointer(11 downto 0)) + signed(data_bus_i));
+        reg_hl               <= std_logic_vector(reg16_results(15 downto 0));
+        carry_flag           <= reg16_results(16);
+        half_carry_flag      <= half_carry16_results(12);
       end if;
 
       -------------------------------------------------------------------------
@@ -893,21 +1049,33 @@ begin
       -------------------------------------------------------------------------
       if rotate_l_a = '1' then
         if thru_cf = '1' then
-          carry_flag  <= accum_local(7);
-          accum_local <= accum_local(6 downto 0) & carry_flag;
+          sub_flag        <= '0';
+          half_carry_flag <= '0';
+          zero_flag       <= '0';
+          carry_flag      <= accum_local(7);
+          accum_local     <= accum_local(6 downto 0) & carry_flag;
         else
-          carry_flag  <= accum_local(7);
-          accum_local <= accum_local(6 downto 0) & accum_local(7);
+          sub_flag        <= '0';
+          half_carry_flag <= '0';
+          zero_flag       <= '0';
+          carry_flag      <= accum_local(7);
+          accum_local     <= accum_local(6 downto 0) & accum_local(7);
         end if;
       end if;
 
       if rotate_r_a = '1' then
         if thru_cf = '1' then
-          carry_flag  <= accum_local(0);
-          accum_local <= carry_flag & accum_local(7 downto 1);
+          sub_flag        <= '0';
+          half_carry_flag <= '0';
+          zero_flag       <= '0';
+          carry_flag      <= accum_local(0);
+          accum_local     <= carry_flag & accum_local(7 downto 1);
         else
-          carry_flag  <= accum_local(0);
-          accum_local <= accum_local(0) & accum_local(7 downto 1);
+          sub_flag        <= '0';
+          half_carry_flag <= '0';
+          zero_flag       <= '0';
+          carry_flag      <= accum_local(0);
+          accum_local     <= accum_local(0) & accum_local(7 downto 1);
         end if;
       end if;
 
@@ -1963,8 +2131,8 @@ begin
                   else
                     zero_flag <= '0';
                   end if;
-                  carry_flag  <= data_bus_i(7);
-                  data_bus_o <= data_bus_i(6 downto 0) & data_bus_i(7);
+                  carry_flag   <= data_bus_i(7);
+                  data_bus_reg <= data_bus_i(6 downto 0) & data_bus_i(7);
                 when "00010" =>         -- RL
                   half_carry_flag <= '0';
                   sub_flag        <= '0';
@@ -1973,8 +2141,8 @@ begin
                   else
                     zero_flag <= '0';
                   end if;
-                  carry_flag  <= data_bus_i(7);
-                  data_bus_o <= data_bus_i(6 downto 0) & carry_flag;
+                  carry_flag   <= data_bus_i(7);
+                  data_bus_reg <= data_bus_i(6 downto 0) & carry_flag;
                 when "00001" =>         -- RRC
                   half_carry_flag <= '0';
                   sub_flag        <= '0';
@@ -1983,8 +2151,8 @@ begin
                   else
                     zero_flag <= '0';
                   end if;
-                  carry_flag  <= data_bus_i(0);
-                  data_bus_o <= data_bus_i(0) & data_bus_i(7 downto 1);
+                  carry_flag   <= data_bus_i(0);
+                  data_bus_reg <= data_bus_i(0) & data_bus_i(7 downto 1);
                 when "00011" =>         -- RR
                   half_carry_flag <= '0';
                   sub_flag        <= '0';
@@ -1993,8 +2161,8 @@ begin
                   else
                     zero_flag <= '0';
                   end if;
-                  carry_flag  <= data_bus_i(0);
-                  data_bus_o <= carry_flag & data_bus_i(7 downto 1);
+                  carry_flag   <= data_bus_i(0);
+                  data_bus_reg <= carry_flag & data_bus_i(7 downto 1);
                 when "00100" =>         -- SLA
                   half_carry_flag <= '0';
                   sub_flag        <= '0';
@@ -2003,8 +2171,8 @@ begin
                   else
                     zero_flag <= '0';
                   end if;
-                  carry_flag  <= data_bus_i(7);
-                  data_bus_o <= data_bus_i(6 downto 0) & '0';
+                  carry_flag   <= data_bus_i(7);
+                  data_bus_reg <= data_bus_i(6 downto 0) & '0';
                 when "00101" =>         -- SRA
                   half_carry_flag <= '0';
                   sub_flag        <= '0';
@@ -2013,13 +2181,13 @@ begin
                   else
                     zero_flag <= '0';
                   end if;
-                  carry_flag  <= data_bus_i(0);
-                  data_bus_o <= data_bus_i(7) & data_bus_i(7 downto 1);
+                  carry_flag   <= data_bus_i(0);
+                  data_bus_reg <= data_bus_i(7) & data_bus_i(7 downto 1);
                 when "00110" =>         -- SWAP
                   half_carry_flag <= '0';
                   sub_flag        <= '0';
                   carry_flag      <= '0';
-                  data_bus_o     <= data_bus_i(3 downto 0) & data_bus_i(7 downto 4);
+                  data_bus_reg    <= data_bus_i(3 downto 0) & data_bus_i(7 downto 4);
                   if data_bus_i = x"00" then
                     zero_flag <= '1';
                   else
@@ -2033,8 +2201,8 @@ begin
                   else
                     zero_flag <= '0';
                   end if;
-                  carry_flag  <= data_bus_i(0);
-                  data_bus_o <= '0' & data_bus_i(7 downto 1);
+                  carry_flag   <= data_bus_i(0);
+                  data_bus_reg <= '0' & data_bus_i(7 downto 1);
                 when "01000" =>         -- BIT 0
                   sub_flag        <= '0';
                   half_carry_flag <= '1';
@@ -2068,37 +2236,37 @@ begin
                   half_carry_flag <= '1';
                   zero_flag       <= not(data_bus_i(7));
                 when "10000" =>         -- RES 0
-                  data_bus_o <= data_bus_i(7 downto 1) & '0';
+                  data_bus_reg <= data_bus_i(7 downto 1) & '0';
                 when "10001" =>         -- RES 1
-                  data_bus_o <= data_bus_i(7 downto 2) & '0' & data_bus_i(0);
+                  data_bus_reg <= data_bus_i(7 downto 2) & '0' & data_bus_i(0);
                 when "10010" =>         -- RES 2
-                  data_bus_o <= data_bus_i(7 downto 3) & '0' & data_bus_i(1 downto 0);
+                  data_bus_reg <= data_bus_i(7 downto 3) & '0' & data_bus_i(1 downto 0);
                 when "10011" =>         -- RES 3
-                  data_bus_o <= data_bus_i(7 downto 4) & '0' & data_bus_i(2 downto 0);
+                  data_bus_reg <= data_bus_i(7 downto 4) & '0' & data_bus_i(2 downto 0);
                 when "10100" =>         -- RES 4
-                  data_bus_o <= data_bus_i(7 downto 5) & '0' & data_bus_i(3 downto 0);
+                  data_bus_reg <= data_bus_i(7 downto 5) & '0' & data_bus_i(3 downto 0);
                 when "10101" =>         -- RES 5
-                  data_bus_o <= data_bus_i(7 downto 6) & '0' & data_bus_i(4 downto 0);
+                  data_bus_reg <= data_bus_i(7 downto 6) & '0' & data_bus_i(4 downto 0);
                 when "10110" =>         -- RES 6
-                  data_bus_o <= data_bus_i(7) & '0' & data_bus_i(5 downto 0);
+                  data_bus_reg <= data_bus_i(7) & '0' & data_bus_i(5 downto 0);
                 when "10111" =>         -- RES 7
-                  data_bus_o <= '0' & data_bus_i(6 downto 0);
+                  data_bus_reg <= '0' & data_bus_i(6 downto 0);
                 when "11000" =>         -- SET 0
-                  data_bus_o <= data_bus_i(7 downto 1) & '1';
+                  data_bus_reg <= data_bus_i(7 downto 1) & '1';
                 when "11001" =>         -- SET 1
-                  data_bus_o <= data_bus_i(7 downto 2) & '1' & data_bus_i(0);
+                  data_bus_reg <= data_bus_i(7 downto 2) & '1' & data_bus_i(0);
                 when "11010" =>         -- SET 2
-                  data_bus_o <= data_bus_i(7 downto 3) & '1' & data_bus_i(1 downto 0);
+                  data_bus_reg <= data_bus_i(7 downto 3) & '1' & data_bus_i(1 downto 0);
                 when "11011" =>         -- SET 3
-                  data_bus_o <= data_bus_i(7 downto 4) & '1' & data_bus_i(2 downto 0);
+                  data_bus_reg <= data_bus_i(7 downto 4) & '1' & data_bus_i(2 downto 0);
                 when "11100" =>         -- SET 4
-                  data_bus_o <= data_bus_i(7 downto 5) & '1' & data_bus_i(3 downto 0);
+                  data_bus_reg <= data_bus_i(7 downto 5) & '1' & data_bus_i(3 downto 0);
                 when "11101" =>         -- SET 5
-                  data_bus_o <= data_bus_i(7 downto 6) & '1' & data_bus_i(4 downto 0);
+                  data_bus_reg <= data_bus_i(7 downto 6) & '1' & data_bus_i(4 downto 0);
                 when "11110" =>         -- SET 6
-                  data_bus_o <= data_bus_i(7) & '1' & data_bus_i(5 downto 0);
+                  data_bus_reg <= data_bus_i(7) & '1' & data_bus_i(5 downto 0);
                 when "11111" =>         -- SET 7
-                  data_bus_o <= '1' & data_bus_i(6 downto 0);
+                  data_bus_reg <= '1' & data_bus_i(6 downto 0);
                 when others => null;
               end case;
             end if;

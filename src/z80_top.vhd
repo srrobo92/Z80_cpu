@@ -6,7 +6,7 @@
 -- Author     : Steve Robichaud
 -- Company    : Self
 -- Created    : 2022-08-14
--- Last update: 2022-09-06
+-- Last update: 2023-03-26
 -- Platform   : 
 -- Standard   : VHDL'08
 -------------------------------------------------------------------------------
@@ -92,6 +92,7 @@ architecture rtl of z80_top is
   -----------------------------------------------------------------------------
   -- CPU CONTROL SIGNALS
   signal rd_local       : std_logic;
+  signal wr_local       : std_logic;
   signal stack_data     : std_logic_vector(15 downto 0);
   signal update_reg     : std_logic_vector(2 downto 0);
   signal increment_reg  : std_logic_vector(2 downto 0);
@@ -101,6 +102,7 @@ architecture rtl of z80_top is
   signal bit_reg        : std_logic_vector(2 downto 0);
   signal bit_cmd        : std_logic_vector(4 downto 0);
   signal use_cmd        : std_logic;
+  signal db_io          : std_logic;
   signal inc_db         : std_logic;
   signal dec_db         : std_logic;
   signal add_reg        : std_logic_vector(3 downto 0);
@@ -154,6 +156,7 @@ architecture rtl of z80_top is
 begin
 
   RD <= rd_local;
+  WR <= wr_local;
 
   -----------------------------------------------------------------------------
   -- CPU Control Module
@@ -174,7 +177,7 @@ begin
       bus_ack        => BUSACK,
       mreq           => MREQ,
       rd             => rd_local,
-      wr             => WR,
+      wr             => wr_local,
       m1_o           => M1,
       rfsh           => RFSH,
       -------------------------------------------------------------------------
@@ -194,6 +197,7 @@ begin
       bit_cmd        => bit_cmd,
       use_cmd        => use_cmd,
       inc_db         => inc_db,
+      db_io          => db_io,
       dec_db         => dec_db,
       add_reg        => add_reg,
       add_hl         => add_hl,
@@ -237,6 +241,7 @@ begin
     port map (
       clk             => CLK,
       reset           => RESET,
+      wr              => wr_local,
       rd              => rd_local,
       data_bus_i      => DATA_BUS_I,
       data_bus_o      => DATA_BUS_O,
@@ -261,6 +266,7 @@ begin
       use_cmd         => use_cmd,
       inc_db          => inc_db,
       dec_db          => dec_db,
+      db_io           => db_io,
       add_reg         => add_reg,
       add_hl          => add_hl,
       hl_pl_sp        => hl_pl_sp,
